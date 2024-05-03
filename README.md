@@ -12,8 +12,8 @@ The Nextflow pipeline contains the following processes (in sequential order):
 4)	alignment: NextGenMap + samtools sort to produce BAM file from single or paired end reads downloaded previously
 5)	check_duplicates: gatk/Picard AddOrReplaceReadGroups
 6)	remove_duplicates: gatk MarkDuplicates with –REMOVE_SEQUENCING_DUPLICATES set to ‘true’
-7)	base_recal1/2/3: three iterations of gatk ApplyBQSR, gatk BaseRecalibrator, and gatk AnalyzeCovariates
-8)	haplotype_caller: gatk HaplotypeCaller to generate VCF
+7)	base_recal1/2/3: three iterations of gatk ApplyBQSR, gatk BaseRecalibrator, and gatk AnalyzeCovariates. Read more about this process here: https://gatk.broadinstitute.org/hc/en-us/articles/360035890531-Base-Quality-Score-Recalibration-BQSR. The basic idea is that we identify sources of systematic bias in the rate at which mismatched calls (against the reference) are found, (for example, do we tend to find an overabundance of variants at the ends of reads), and then we adjust the base quality scores accordingly. If we know where we *should* be finding variants, we can supply a vcf of known sites to be masked from this process. In this pipeline, by default we use a VCF of known AMEL SNPs. But what if we don't have a set of known variants? In that case, we might wish to perform some kind of bootstrapping, e.g. first genotyping, then running the original data through the BSQR process using the most high-confidence SNPs from the first pass as known sites. This can be done multiple times until the data seem to converge. That capability isn't currently implemented, but could be!
+8)	haplotype_caller: gatk HaplotypeCaller to generate VCF, using default parameters. 
 9)	alignment_cleanup: delete fastq and other intermediate files (bam_files, updated_bam_files, and recal_bam_files)
 
 <h2>Inputs</h2>
@@ -24,6 +24,7 @@ The Nextflow pipeline contains the following processes (in sequential order):
 <h2>Other notes</h2>
 1.	Reference genome: the pipeline is set up to work on Apis mellifera only – the reference genome has not been included as an argument and is therefore specified in the code directly. A future version could make the reference genome flexible.
 2.	Similarly, a check for Apis mellifera sequences only is also included in the workflow. All database entries that do not have the ‘7460’ tax_id code are filtered out and ignored.
+3.  At present, the pipeline ends at the haplotype calling step, but this is *not* an appropriate final step before downstream analysis. We either need to take the output VCF and filter, or (preferably, I think) use output gvcfs to perform joint genotyping with GenotypeGVCFs (and then perform any filtering we want on the output from that)
 
 <h2>How to run on Purdue Bell</h2>
 Considerations:

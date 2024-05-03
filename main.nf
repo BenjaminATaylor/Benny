@@ -7,6 +7,7 @@ params.saveTemp = "/depot/bharpur/data/popgenomes/nextflow"
 params.savePath = "/depot/bharpur/data/popgenomes/nextflow/"
 
 //reference genome
+//default is Apis mellifera
 params.refGenome = "/depot/bharpur/data/ref_genomes/AMEL/Amel_HAv3.1_genomic.fna"
 
 //NCBI/EBI database taxonomic id for target species
@@ -160,11 +161,11 @@ process check_duplicates{
 
     script:
     """
+    # NB this assumes illumina sequencing. Otherwise effectively default parameters
     java -jar \$CLASSPATH AddOrReplaceReadGroups \
         -I ${params.saveTemp}/bam_files/"$runAccession".bam \
         -O ${params.saveTemp}/updated_bam_files/"$runAccession"_updated.bam \
-        -RGID 1 \
-        -RGLB lib1 \
+        -RGLB lib1 \ 
         -RGPL illumina \
         -RGPU unit1 \
         -RGSM $runAccession           
@@ -213,7 +214,7 @@ process base_recal1{
 
 
     script:
-    """
+    """    
     gatk BaseRecalibrator \
         -I ${params.savePath}/final_bam_files/"$runAccession"_final.bam \
         -R ${params.refGenome} \
