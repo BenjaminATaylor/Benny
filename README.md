@@ -1,7 +1,8 @@
-Nextflow readme
-Last edited by B. Goller, Purdue College of Agriculture Data Services on October 03, 2022
+<h1>Readme</h1>
 
-Overview:
+Created by B. Goller, Purdue College of Agriculture Data Services, October 2022
+
+<h2>Overview</h2>
 This Nextflow pipeline is designed to automate downloading and processing of Honey bee (Apis mellifera) sequence data. Taking an input list of desired sequences (NCBI/EBI), the pipeline then aligns those sequence to a honey bee reference genome, does some quality control, and produces a final variant call format file for each sequence.
 
 The Nextflow pipeline contains the following processes (in sequential order):
@@ -15,16 +16,16 @@ The Nextflow pipeline contains the following processes (in sequential order):
 8)	haplotype_caller: gatk HaplotypeCaller to generate VCF
 9)	alignment_cleanup: delete fastq and other intermediate files (bam_files, updated_bam_files, and recal_bam_files)
 
-Inputs:
+<h2>Inputs</h2>
 --database: the information for the input sequences for the pipeline (format is a .CSV database). Subsetting the included ‘genomics_dataset.csv’ is recommended.
 --saveTemp: indicate the directory where the downloaded fastq files and intermediate products should be saved (the fastq files and intermediate products are DELETED at the end of the workflow)
 --savePath: indicate the directory where the pipeline products should be saved
 
-Other notes:
+<h2>Other notes</h2>
 1.	Reference genome: the pipeline is set up to work on Apis mellifera only – the reference genome has not been included as an argument and is therefore specified in the code directly. A future version could make the reference genome flexible.
 2.	Similarly, a check for Apis mellifera sequences only is also included in the workflow. All database entries that do not have the ‘7460’ tax_id code are filtered out and ignored.
 
-How to run on Purdue Bell:
+<h2>How to run on Purdue Bell</h2>
 Considerations:
 1)	There is limited space on your home directory on Bell (25GB) which will very quickly be filled by sequencing files and Nextflow logging – use your scratch directory (scratch/bell/userName or $RCAC_SCRATCH) where possible for temporary files
 2)	Similarly, cd into your scratch directory (cd $RCAC_SCRATCH) before starting a Nextflow run so that pipeline logging can be stored (it will almost certainly be >25GB)
@@ -47,7 +48,7 @@ run is the Nextflow command to run the pipeline
 [OPTIONAL] -bg runs Nextflow in the background so you can close your terminal without stopping the Nextflow pipeline (recommend this because the pipeline will take a long time to complete)
 [OPTIONAL] -resume if you need to restart the pipeline (pick up where it stopped for instance) you can use the resume command. This will be ignored if you are starting a new run of the pipeline
 
-Troubleshooting:
+<h2>Troubleshooting</h2>
 The directory where you launch the Nextflow run matters…your logging files and /work/ directory that keeps track of your progress will both be saved there. Nextflow will run as a process (won’t show up in the jobs queue) and the pipeline will automatically submit individual jobs for each sequence (tagged with the accession number) for each part of the pipeline. 
 Look at the .nextflow.log files to figure out where in the pipeline you are. If you need to dive deeper into a particular job, the log files will tell you what subdirectory in /work/ you should look at – each job will be recorded in a unique subdirectory within /work/. Then you can look at the .command.log, .exitcode, .command.run, etc files within that unique subdirectory to figure out what is happening/happened during the job.
 See what jobs are currently running on the bharpur node: squeue -A bharpur (or for your username: squeue -u userName)
