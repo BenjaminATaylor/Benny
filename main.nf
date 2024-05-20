@@ -8,6 +8,9 @@ params.savePath = "/depot/bharpur/data/popgenomes/nextflow/"
 //reference genome (bee RefSeq by default)
 params.refGenome = "/depot/bharpur/data/ref_genomes/AMEL/Amel_HAv3.1_genomic.fna"
 
+//set knownsites empty by default
+params.knownSites = null
+
 //path containing the fastq files
 //this is correct if you follow the readme guide and download to scratch
 //pattern for filenaming
@@ -31,6 +34,34 @@ params.fastqPattern = "*_{1,2}.fq"
     SETUP AND RUN ALIGNMENT
 ========================================================================================
 */
+process known_sites{
+    
+    module 'bioinfo:GATK'
+    publishDir "${params.savePath}/knownsites", mode: 'copy'
+    
+    output:
+    tuple path('knownsites.vcf'), path('knownsites.vcf.idx')
+        
+    script:
+    //if knownsites is provided, just emit that filename
+    if (params.knownSites != null)
+        """
+        mkdir -p ${params.saveTemp}/knownsites
+        cp ${params.knownSites} knownsites.vcf
+        gatk IndexFeatureFile -I knownsites.vcf
+        """
+    //else fabricate an empty knownsites to prevent BQSR errors
+    else
+        """
+        mkdir -p ${params.saveTemp}/knownsites
+        echo "##fileformat=VCFv4.2" > knownsites.vcf
+        echo "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO" >> knownsites.vcf
+        gatk IndexFeatureFile -I knownsites.vcf
+        """
+    
+}
+
+
 process alignment{
     tag "$runAccession"
     module 'bioinfo:samtools'
@@ -130,16 +161,17 @@ process base_recal1{
 
     input:
     val runAccession
+    tuple path(knownsites), path(idx)
 
     output:
     val runAccession
 
     script:
-    """
+    """        
     gatk BaseRecalibrator \
         -I ${params.savePath}/final_bam_files/"$runAccession"_final.bam \
         -R ${params.refGenome} \
-        --known-sites /depot/bharpur/data/ref_genomes/AMELknown_sites.vcf \
+        --known-sites $knownsites \
         -O ${params.savePath}/data_tables/"$runAccession"_recal_data_1.table
 
 
@@ -153,7 +185,7 @@ process base_recal1{
     gatk BaseRecalibrator \
         -I ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_1.bam  \
         -R ${params.refGenome} \
-        --known-sites /depot/bharpur/data/ref_genomes/AMELknown_sites.vcf \
+        --known-sites $knownsites \
         -O ${params.savePath}/data_tables/"$runAccession"_recal_data_2.table
     
     gatk AnalyzeCovariates \
@@ -171,6 +203,7 @@ process base_recal2{
 
     input:
     val runAccession
+    tuple path(knownsites), path(idx)
 
     output:
     val runAccession
@@ -187,7 +220,7 @@ process base_recal2{
     gatk BaseRecalibrator \
         -I ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_2.bam  \
         -R ${params.refGenome} \
-        --known-sites /depot/bharpur/data/ref_genomes/AMELknown_sites.vcf \
+        --known-sites $knownsites \
         -O ${params.savePath}/data_tables/"$runAccession"_recal_data_3.table
     
     gatk AnalyzeCovariates \
@@ -207,6 +240,7 @@ process base_recal3{
 
     input:
     val runAccession
+    tuple path(knownsites), path(idx)
 
     output:
     val runAccession
@@ -223,7 +257,7 @@ process base_recal3{
     gatk BaseRecalibrator \
         -I ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_3.bam  \
         -R ${params.refGenome} \
-        --known-sites /depot/bharpur/data/ref_genomes/AMELknown_sites.vcf \
+        --known-sites $knownsites \
         -O ${params.savePath}/data_tables/"$runAccession"_recal_data_4.table
     
     gatk AnalyzeCovariates \
@@ -255,11 +289,11 @@ process haplotype_caller{
     script:
     vcfname = params.savePath + "/raw_snps/" + runAccession + "_raw_snps.vcf"
     """
-    #gatk HaplotypeCaller \
-    #    -R ${params.refGenome} \
-    #    -I ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_3.bam \
-    #    -ERC GVCF \
-    #    -O ${params.savePath}/raw_snps/"$runAccession"_raw_snps.vcf
+    gatk HaplotypeCaller \
+        -R ${params.refGenome} \
+        -I ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_3.bam \
+        -ERC GVCF \
+        -O ${params.savePath}/raw_snps/"$runAccession"_raw_snps.vcf
     """
 }
 
@@ -337,6 +371,9 @@ workflow{
     Channel.fromFilePairs(params.fastqPath+params.fastqPattern)
         | view() \
         | set {fastq_secured}
+        
+    known_sites() \
+        | set{knownsites}
 
     alignment(fastq_secured) \
         | set{align_done}
@@ -347,13 +384,13 @@ workflow{
     remove_duplicates(dupl_check_complete) \
         | set {dupl_removed}
 
-    base_recal1(dupl_removed) \
+    base_recal1(dupl_removed,knownsites) \
         | set {base_recal1}
     
-    base_recal2(base_recal1) \
+    base_recal2(base_recal1,knownsites) \
         | set {base_recal2}
 
-    base_recal3(base_recal2) \
+    base_recal3(base_recal2,knownsites) \
         | set {base_recal_done}
 
     haplotype_caller(base_recal_done)
