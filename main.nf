@@ -20,7 +20,8 @@ params.fastqPattern = "*_{1,2}.fq"
 ========================================================================================
 ========================================================================================
 //A GENERALIZED VERSION OF THE DOWNLOAD, ALIGN, AND CALL HAPLOTYPES PIPELINE
-//ORIGINALLY DEVELOPED FOR HARPUR LAB (PURDUE ENTOMOLOGY) FOR APIS MELLIFERA GENOMICS
+//ORIGINALLY DEVELOPED FOR HARPUR LAB (PURDUE ENTOMOLOGY) FOR APIS MELLIFERA GENOMICS BY BENNY GOLLER, OCT 2022
+//UPDATED BY BENJAMIN A TAYLOR, MAY 2024
 ========================================================================================
 ========================================================================================
 */
@@ -34,32 +35,6 @@ params.fastqPattern = "*_{1,2}.fq"
     SETUP AND RUN ALIGNMENT
 ========================================================================================
 */
-process known_sites{
-    
-    module 'bioinfo:GATK'
-    publishDir "${params.savePath}/knownsites", mode: 'copy'
-    
-    output:
-    tuple path('knownsites.vcf'), path('knownsites.vcf.idx')
-        
-    script:
-    //if knownsites is provided, just emit that filename
-    if (params.knownSites != null)
-        """
-        mkdir -p ${params.saveTemp}/knownsites
-        cp ${params.knownSites} knownsites.vcf
-        gatk IndexFeatureFile -I knownsites.vcf
-        """
-    //else fabricate an empty knownsites to prevent BQSR errors
-    else
-        """
-        mkdir -p ${params.saveTemp}/knownsites
-        echo "##fileformat=VCFv4.2" > knownsites.vcf
-        echo "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO" >> knownsites.vcf
-        gatk IndexFeatureFile -I knownsites.vcf
-        """
-    
-}
 
 
 process alignment{
@@ -127,7 +102,7 @@ process remove_duplicates{
     val runAccession
 
     output:
-    val runAccession
+    tuple path('duprem.bam'),val(runAccession)
 
     script:
     """
@@ -142,9 +117,10 @@ process remove_duplicates{
     
     gatk MarkDuplicates\
         -I ${params.saveTemp}/updated_bam_files/"$runAccession"_updated.bam \
-        -O ${params.savePath}/final_bam_files/"$runAccession"_final.bam \
+        -O duprem.bam \
         -M marked_dup_metrics.txt  \
-        --REMOVE_SEQUENCING_DUPLICATES true
+        --REMOVE_SEQUENCING_DUPLICATES true \
+        --CREATE_INDEX true
     """
 }
 
@@ -160,8 +136,7 @@ process base_recal1{
     //errorstrategy 'ignore'
 
     input:
-    val runAccession
-    tuple path(knownsites), path(idx)
+    tuple path(bam), val(runAccession)
 
     output:
     val runAccession
@@ -169,9 +144,9 @@ process base_recal1{
     script:
     """        
     gatk BaseRecalibrator \
-        -I ${params.savePath}/final_bam_files/"$runAccession"_final.bam \
+        -I $bam \
         -R ${params.refGenome} \
-        --known-sites $knownsites \
+        --known-sites ${params.knownSites} \
         -O ${params.savePath}/data_tables/"$runAccession"_recal_data_1.table
 
 
@@ -185,7 +160,7 @@ process base_recal1{
     gatk BaseRecalibrator \
         -I ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_1.bam  \
         -R ${params.refGenome} \
-        --known-sites $knownsites \
+        --known-sites ${params.knownSites} \
         -O ${params.savePath}/data_tables/"$runAccession"_recal_data_2.table
     
     gatk AnalyzeCovariates \
@@ -203,7 +178,6 @@ process base_recal2{
 
     input:
     val runAccession
-    tuple path(knownsites), path(idx)
 
     output:
     val runAccession
@@ -220,7 +194,7 @@ process base_recal2{
     gatk BaseRecalibrator \
         -I ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_2.bam  \
         -R ${params.refGenome} \
-        --known-sites $knownsites \
+        --known-sites ${params.knownSites} \
         -O ${params.savePath}/data_tables/"$runAccession"_recal_data_3.table
     
     gatk AnalyzeCovariates \
@@ -240,10 +214,9 @@ process base_recal3{
 
     input:
     val runAccession
-    tuple path(knownsites), path(idx)
 
     output:
-    val runAccession
+    tuple path('finalrecal.bam'), val(runAccession)
 
     script:
     """   
@@ -252,12 +225,12 @@ process base_recal3{
         -I ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_2.bam \
         -R ${params.refGenome} \
         --bqsr-recal-file ${params.savePath}/data_tables/"$runAccession"_recal_data_3.table \
-        -O ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_3.bam
+        -O finalrecal.bam
         
     gatk BaseRecalibrator \
-        -I ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_3.bam  \
+        -I finalrecal.bam  \
         -R ${params.refGenome} \
-        --known-sites $knownsites \
+        --known-sites ${params.knownSites} \
         -O ${params.savePath}/data_tables/"$runAccession"_recal_data_4.table
     
     gatk AnalyzeCovariates \
@@ -280,7 +253,7 @@ process haplotype_caller{
     //errorstrategy 'ignore'
     
     input:
-    val runAccession
+    tuple path(bam), val(runAccession)
 
     output:
     val runAccession, emit: accession
@@ -291,7 +264,7 @@ process haplotype_caller{
     """
     gatk HaplotypeCaller \
         -R ${params.refGenome} \
-        -I ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_3.bam \
+        -I $bam \
         -ERC GVCF \
         -O ${params.savePath}/raw_snps/"$runAccession"_raw_snps.vcf
     """
@@ -371,9 +344,6 @@ workflow{
     Channel.fromFilePairs(params.fastqPath+params.fastqPattern)
         | view() \
         | set {fastq_secured}
-        
-    known_sites() \
-        | set{knownsites}
 
     alignment(fastq_secured) \
         | set{align_done}
@@ -384,16 +354,17 @@ workflow{
     remove_duplicates(dupl_check_complete) \
         | set {dupl_removed}
 
-    base_recal1(dupl_removed,knownsites) \
-        | set {base_recal1}
-    
-    base_recal2(base_recal1,knownsites) \
-        | set {base_recal2}
-
-    base_recal3(base_recal2,knownsites) \
-        | set {base_recal_done}
-
-    haplotype_caller(base_recal_done)
+    if( params.knownSites != null ) {
+        base_recal1(dupl_removed) \
+            | set {base_recal1}
+        base_recal2(base_recal1) \
+            | set {base_recal2}
+        base_recal3(base_recal2) \
+            | set {base_recal_done}
+        haplotype_caller(base_recal_done) 
+    } else {
+        haplotype_caller(dupl_removed)        
+    }
     
     haplotype_caller.out.gvcf.collectFile(name: 'vcfs.list', newLine: true) \
         | set {vcfslist}
