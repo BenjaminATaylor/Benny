@@ -198,7 +198,7 @@ process base_recal2{
         -O ${params.savePath}/data_tables/"$runAccession"_recal_data_3.table
     
     gatk AnalyzeCovariates \
-        -before ${params.savePath}/data_tables/"$runAccession"_recal_data_1.table \
+        -before ${params.savePath}/data_tables/"$runAccession"_recal_data_2.table \
         -after ${params.savePath}/data_tables/"$runAccession"_recal_data_3.table \
         -plots ${params.savePath}/recal_plots/"$runAccession"_plot_2.pdf
 
@@ -234,7 +234,7 @@ process base_recal3{
         -O ${params.savePath}/data_tables/"$runAccession"_recal_data_4.table
     
     gatk AnalyzeCovariates \
-        -before ${params.savePath}/data_tables/"$runAccession"_recal_data_1.table \
+        -before ${params.savePath}/data_tables/"$runAccession"_recal_data_3.table \
         -after ${params.savePath}/data_tables/"$runAccession"_recal_data_4.table \
         -plots ${params.savePath}/recal_plots/"$runAccession"_plot_3.pdf
 
@@ -249,7 +249,7 @@ process base_recal3{
 process haplotype_caller{
     tag "$runAccession"
     module 'bioinfo:GATK'
-    clusterOptions '--ntasks 1 --time 4-00:00:00 -A bharpur'
+    clusterOptions '--ntasks 1 --time 1-00:00:00 -A bharpur'
     //errorstrategy 'ignore'
     
     input:
@@ -272,7 +272,7 @@ process haplotype_caller{
 
 process combine_gvcfs{
     module 'bioinfo:GATK'
-    clusterOptions '--ntasks 14 --mem=100G --time 4-00:00:00 -A bharpur'
+    clusterOptions '--ntasks 14 --mem=100G --time 1-00:00:00 -A bharpur'
 
     input:
     val vcfslist
@@ -292,14 +292,14 @@ process combine_gvcfs{
 process genotype_gvcfs{
     
     module 'bioinfo:GATK'
-    clusterOptions '--ntasks 14 --mem=100G --time 4-00:00:00 -A bharpur'
+    clusterOptions '--ntasks 14 --mem=100G --time 1-00:00:00 -A bharpur'
     publishDir "${params.savePath}/raw_snps", mode: 'copy'
     
     input:
     path combinedgvcfs
 
     output:
-    path 'combined.vcf.gz'
+    tuple path('combined.vcf.gz'),path('combined.vcf.gz.tbi')
     
     script:
     """
@@ -311,6 +311,279 @@ process genotype_gvcfs{
 
     
 }
+
+/*
+========================================================================================
+    BQSR BOOTSTRAPPING
+    (parts of this taken from gencore.bio.nyu.edu/variant-calling-pipeline-gatk4/)
+========================================================================================
+*/
+
+process select_snps{
+    
+    module 'bioinfo:GATK'
+    clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
+
+    input:
+    tuple path(rawvcf),path(idx)
+    
+    output:
+    path 'raw_snps.vcf'
+    
+    script:
+    """
+    gatk SelectVariants \
+        -R ${params.refGenome} \
+        -V $rawvcf \
+        -select-type SNP \
+        -O raw_snps.vcf
+    """ 
+}
+
+process select_indels{
+    
+    module 'bioinfo:GATK'
+    clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
+
+    input:
+    tuple path(rawvcf),path(idx)
+    
+    output:
+    path 'raw_indels.vcf'
+    
+    script:
+    """
+    gatk SelectVariants \
+        -R ${params.refGenome} \
+        -V $rawvcf \
+        -select-type INDEL \
+        -O raw_indels.vcf
+    """ 
+}
+
+process filter_snps{
+    
+    module 'bioinfo:GATK'
+    clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
+
+    input:
+    path rawsnpsvcf
+    
+    output:
+    path 'filtered_snps.vcf'
+    
+    script:
+    """
+    gatk VariantFiltration \
+        -R ${params.refGenome} \
+        -V $rawsnpsvcf \
+        -O filtered_snps.vcf \
+        -filter-name "QD_filter" -filter "QD < 2.0" \
+        -filter-name "FS_filter" -filter "FS > 60.0" \
+        -filter-name "MQ_filter" -filter "MQ < 40.0" \
+        -filter-name "SOR_filter" -filter "SOR > 4.0" \
+        -filter-name "MQRankSum_filter" -filter "MQRankSum < -12.5" \
+        -filter-name "ReadPosRankSum_filter" -filter "ReadPosRankSum < -8.0"
+    """ 
+}
+
+process filter_indels{
+    
+    module 'bioinfo:GATK'
+    clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
+
+    input:
+    path rawindelsvcf
+    
+    output:
+    path 'filtered_indels.vcf'
+    
+    script:
+    """
+    gatk VariantFiltration \
+        -R ${params.refGenome} \
+        -V $rawindelsvcf \
+        -O filtered_indels.vcf \
+        -filter-name "QD_filter" -filter "QD < 2.0" \
+        -filter-name "FS_filter" -filter "FS > 200.0" \
+        -filter-name "SOR_filter" -filter "SOR > 10.0"
+    """ 
+}
+
+process apply_snp_filter{
+    
+    module 'bioinfo:GATK'
+    clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
+
+    input:
+    path filteredsnps
+    
+    output:
+    tuple path('snps_filtered.vcf'), path('snps_filtered.vcf.idx')
+    
+    script:
+    """
+    gatk SelectVariants \
+        --exclude-filtered \
+        -V $filteredsnps \
+        -O snps_filtered.vcf
+    """
+}
+
+process apply_indel_filter{
+    
+    module 'bioinfo:GATK'
+    clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
+
+    input:
+    path rawindelsvcf
+    
+    output:
+    tuple path('indels_filtered.vcf'), path('indels_filtered.vcf.idx')
+    
+    script:
+    """
+    gatk SelectVariants \
+        --exclude-filtered \
+        -V $rawindelsvcf \
+        -O indels_filtered.vcf
+    """
+}
+
+process base_recal_boot_init{
+    
+    tag "$runAccession"
+    module 'bioinfo:GATK'
+    clusterOptions '--ntasks 1 --time 8:00:00 -A bharpur'
+
+    input:
+    tuple path(bam), val(runAccession)
+    tuple path(snps), path(snp_idx)
+    tuple path(indels), path(indel_idx)
+
+    output:
+    tuple path(bam), val(runAccession), path('recal_data.table'), path(snps), path(snp_idx), path(indels), path(indel_idx)
+    
+    script:
+    """
+	gatk BaseRecalibrator \
+        -R ${params.refGenome} \
+        -I $bam \
+        --known-sites $snps \
+        --known-sites $indels \
+        -O recal_data.table
+    """
+} 
+
+       
+process base_recal_boot_1{
+    
+    tag "$runAccession"
+    module 'bioinfo:GATK'
+    clusterOptions '--ntasks 1 --time 8:00:00 -A bharpur'
+
+    input:
+    tuple path(bam), val(runAccession), path(table), path(snps), path(snp_idx), path(indels), path(indel_idx)
+
+
+    output:
+    tuple path('recal.bam'), val(runAccession), path('recal_data.table'), path(snps), path(snp_idx), path(indels), path(indel_idx)
+    
+    script:        
+    """
+    #ONE
+    gatk ApplyBQSR \
+        -I $bam \
+        -R ${params.refGenome} \
+        --bqsr-recal-file $table \
+        -O recal.bam
+
+    gatk BaseRecalibrator \
+        -I recal.bam  \
+        -R ${params.refGenome} \
+        --known-sites $snps \
+        --known-sites $indels \
+        -O recal_data.table
+            
+    gatk AnalyzeCovariates \
+        -before $table \
+        -after recal_data.table \
+        -plots ${params.savePath}/recal_plots/"$runAccession"_plot_1.pdf
+    """
+} 
+
+process base_recal_boot_2{
+    
+    tag "$runAccession"
+    module 'bioinfo:GATK'
+    clusterOptions '--ntasks 1 --time 8:00:00 -A bharpur'
+
+    input:
+    tuple path(bam), val(runAccession), path(table), path(snps), path(snp_idx), path(indels), path(indel_idx)
+
+    output:
+    tuple path('recal_2.bam'), val(runAccession), path('recal_data_2.table'), path(snps), path(snp_idx), path(indels), path(indel_idx)
+    
+    script:        
+    """
+    #TWO
+    gatk ApplyBQSR \
+        -I $bam \
+        -R ${params.refGenome} \
+        --bqsr-recal-file $table \
+        -O recal_2.bam
+
+    gatk BaseRecalibrator \
+        -I recal_2.bam  \
+        -R ${params.refGenome} \
+        --known-sites $snps \
+        --known-sites $indels \
+        -O recal_data_2.table
+            
+    gatk AnalyzeCovariates \
+        -before $table \
+        -after recal_data_2.table \
+        -plots ${params.savePath}/recal_plots/"$runAccession"_plot_2.pdf
+    """
+} 
+
+process base_recal_boot_3{
+    
+    tag "$runAccession"
+    module 'bioinfo:GATK'
+    clusterOptions '--ntasks 1 --time 8:00:00 -A bharpur'
+
+    input:
+    tuple path(bam), val(runAccession), path(table), path(snps), path(snp_idx), path(indels), path(indel_idx)
+
+
+    output:
+    tuple path('recal_3.bam'), val(runAccession), path('recal_data_3.table'), path(snps), path(snp_idx), path(indels), path(indel_idx)
+    
+    script:        
+    """
+    #THREE
+    gatk ApplyBQSR \
+        -I $bam \
+        -R ${params.refGenome} \
+        --bqsr-recal-file $table \
+        -O recal_3.bam
+
+    gatk BaseRecalibrator \
+        -I recal_3.bam  \
+        -R ${params.refGenome} \
+        --known-sites $snps \
+        --known-sites $indels \
+        -O recal_data_3.table
+            
+    gatk AnalyzeCovariates \
+        -before $table \
+        -after recal_data_3.table \
+        -plots ${params.savePath}/recal_plots/"$runAccession"_plot_3.pdf
+    """
+} 
+
+
 
 /*
 ========================================================================================
@@ -374,5 +647,28 @@ workflow{
     
     genotype_gvcfs.out.view()
 
+    select_snps(genotype_gvcfs.out)
+    filter_snps(select_snps.out)
+    apply_snp_filter(filter_snps.out)
+
+    select_indels(genotype_gvcfs.out)
+    filter_indels(select_indels.out)
+    apply_indel_filter(filter_indels.out)
+    
+    apply_indel_filter.out.view()
+    
+    if( params.knownSites == null ) {
+    // Note that we use the first() operator here to ensure that the snp/indel filter outputs are treated as values instead of queues
+    base_recal_boot_init(
+        dupl_removed,
+        apply_snp_filter.out.first(),
+        apply_indel_filter.out.first())
+        
+    base_recal_boot_1(base_recal_boot_init.out)
+    base_recal_boot_2(base_recal_boot_1.out)
+    base_recal_boot_3(base_recal_boot_2.out)
+    base_recal_boot_3.out.view()
+    }
+    
     //alignment_cleanup(haplotype_caller.out.accession)
 }
