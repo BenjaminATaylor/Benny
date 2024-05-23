@@ -314,12 +314,7 @@ process filter_snps{
         -R ${params.refGenome} \
         -V $rawsnpsvcf \
         -O filtered_snps.vcf \
-        -filter-name "QD_filter" -filter "QD < 12.0" \
-        -filter-name "FS_filter" -filter "FS > 20.0" \
-        -filter-name "MQ_filter" -filter "MQ < 60.0" \
-        -filter-name "SOR_filter" -filter "SOR > 2.0" \
-        -filter-name "MQRankSum_filter" -filter "MQRankSum < -2.5" \
-        -filter-name "ReadPosRankSum_filter" -filter "ReadPosRankSum < -3.0"
+        -filter-name "QD_filter" -filter "QD < 25.0" \
     """ 
 }
 
@@ -341,9 +336,7 @@ process filter_indels{
         -R ${params.refGenome} \
         -V $rawindelsvcf \
         -O filtered_indels.vcf \
-        -filter-name "QD_filter" -filter "QD < 12.0" \
-        -filter-name "FS_filter" -filter "FS > 20.0" \
-        -filter-name "SOR_filter" -filter "SOR > 2.0"
+        -filter-name "QD_filter" -filter "QD < 25.0" \
     """ 
 }
 
