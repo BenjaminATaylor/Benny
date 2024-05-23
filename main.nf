@@ -56,7 +56,7 @@ process alignment{
     tuple val(runAccession), file(fastqs)
 
     output:
-    val runAccession
+    tuple val(runAccession), path('init.bam')
 
     script:
     """
@@ -67,7 +67,7 @@ process alignment{
     mkdir -p ${params.saveTemp}/recal_bam_files
     mkdir -p ${params.saveTemp}/recal_plots
     mkdir -p ${params.saveTemp}/raw_snps
-    /depot/bharpur/apps/NextGenMap-0.5.2/bin/ngm-0.5.2/ngm -r $refgenome -1 $fastqs[0] -2 $fastqs[1] | samtools sort > ${params.saveTemp}/bam_files/"$runAccession".bam
+    /depot/bharpur/apps/NextGenMap-0.5.2/bin/ngm-0.5.2/ngm -r $refgenome -1 $fastqs[0] -2 $fastqs[1] | samtools sort > init.bam
     """
 }
 /*
@@ -83,16 +83,16 @@ process check_duplicates{
     //errorstrategy 'ignore'
 
     input:
-    val runAccession
+    tuple val(runAccession), path(inbam)
 
     output:
-    val runAccession
+    tuple val(runAccession), path('AORRG.bam')
 
     script:
     """
     java -jar \$CLASSPATH AddOrReplaceReadGroups \
-        -I ${params.saveTemp}/bam_files/"$runAccession".bam \
-        -O ${params.saveTemp}/updated_bam_files/"$runAccession"_updated.bam \
+        -I $inbam \
+        -O AORRG.bam \
         -RGID 1 \
         -RGLB lib1 \
         -RGPL illumina \
@@ -108,7 +108,7 @@ process remove_duplicates{
     //errorstrategy 'ignore'
 
     input:
-    val runAccession
+    tuple val(runAccession), path(inbam)
 
     output:
     tuple path('duprem.bam'),val(runAccession)
@@ -125,7 +125,7 @@ process remove_duplicates{
     mkdir -p ${params.savePath}/raw_snps
     
     gatk MarkDuplicates\
-        -I ${params.saveTemp}/updated_bam_files/"$runAccession"_updated.bam \
+        -I $inbam \
         -O duprem.bam \
         -M marked_dup_metrics.txt  \
         --REMOVE_SEQUENCING_DUPLICATES true \
@@ -145,6 +145,7 @@ process base_recal1{
     //errorstrategy 'ignore'
 
     input:
+    path refgenome
     tuple path(bam), val(runAccession)
 
     output:
@@ -154,7 +155,7 @@ process base_recal1{
     """        
     gatk BaseRecalibrator \
         -I $bam \
-        -R ${params.refGenome} \
+        -R $refgenome \
         --known-sites ${params.knownSites} \
         -O ${params.savePath}/data_tables/"$runAccession"_recal_data_1.table
 
@@ -162,13 +163,13 @@ process base_recal1{
     #ONE
     gatk ApplyBQSR \
         -I ${params.savePath}/final_bam_files/"$runAccession"_final.bam \
-        -R ${params.refGenome} \
+        -R $refgenome \
         --bqsr-recal-file ${params.savePath}/data_tables/"$runAccession"_recal_data_1.table \
         -O ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_1.bam
 
     gatk BaseRecalibrator \
         -I ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_1.bam  \
-        -R ${params.refGenome} \
+        -R $refgenome \
         --known-sites ${params.knownSites} \
         -O ${params.savePath}/data_tables/"$runAccession"_recal_data_2.table
     
@@ -186,6 +187,7 @@ process base_recal2{
     //errorstrategy 'ignore'
 
     input:
+    path refgenome
     val runAccession
 
     output:
@@ -196,13 +198,13 @@ process base_recal2{
     #TWO
     gatk ApplyBQSR \
         -I ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_1.bam \
-        -R ${params.refGenome} \
+        -R $refgenome \
         --bqsr-recal-file ${params.savePath}/data_tables/"$runAccession"_recal_data_2.table \
         -O ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_2.bam
         
     gatk BaseRecalibrator \
         -I ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_2.bam  \
-        -R ${params.refGenome} \
+        -R $refgenome \
         --known-sites ${params.knownSites} \
         -O ${params.savePath}/data_tables/"$runAccession"_recal_data_3.table
     
@@ -222,6 +224,7 @@ process base_recal3{
     //errorstrategy 'ignore'
 
     input:
+    path refgenome
     val runAccession
 
     output:
@@ -232,13 +235,13 @@ process base_recal3{
     #THREE
     gatk ApplyBQSR \
         -I ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_2.bam \
-        -R ${params.refGenome} \
+        -R $refgenome \
         --bqsr-recal-file ${params.savePath}/data_tables/"$runAccession"_recal_data_3.table \
         -O finalrecal.bam
         
     gatk BaseRecalibrator \
         -I finalrecal.bam  \
-        -R ${params.refGenome} \
+        -R $refgenome \
         --known-sites ${params.knownSites} \
         -O ${params.savePath}/data_tables/"$runAccession"_recal_data_4.table
     
@@ -264,6 +267,7 @@ process select_snps{
     clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
+    path refgenome
     tuple path(rawvcf),path(idx)
     
     output:
@@ -272,7 +276,7 @@ process select_snps{
     script:
     """
     gatk SelectVariants \
-        -R ${params.refGenome} \
+        -R $refgenome \
         -V $rawvcf \
         -select-type SNP \
         -O raw_snps.vcf
@@ -285,6 +289,7 @@ process select_indels{
     clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
+    path refgenome
     tuple path(rawvcf),path(idx)
     
     output:
@@ -293,7 +298,7 @@ process select_indels{
     script:
     """
     gatk SelectVariants \
-        -R ${params.refGenome} \
+        -R $refgenome \
         -V $rawvcf \
         -select-type INDEL \
         -O raw_indels.vcf
@@ -306,6 +311,7 @@ process filter_snps{
     clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
+    path refgenome
     path rawsnpsvcf
     
     output:
@@ -315,7 +321,7 @@ process filter_snps{
     """
     #Note that here we are looking only for the highest-confidence SNPs for downstream filtering, so we're going to use more conservative filters than typical
     gatk VariantFiltration \
-        -R ${params.refGenome} \
+        -R $refgenome \
         -V $rawsnpsvcf \
         -O filtered_snps.vcf \
         -filter-name "QD_filter" -filter "QD < 25.0" \
@@ -328,6 +334,7 @@ process filter_indels{
     clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
+    path refgenome
     path rawindelsvcf
     
     output:
@@ -337,7 +344,7 @@ process filter_indels{
     """
     #Note that here we are looking only for the highest-confidence InDels for downstream filtering, so we're going to use more conservative filters than typical
     gatk VariantFiltration \
-        -R ${params.refGenome} \
+        -R $refgenome \
         -V $rawindelsvcf \
         -O filtered_indels.vcf \
         -filter-name "QD_filter" -filter "QD < 25.0" \
@@ -391,6 +398,7 @@ process base_recal_boot_init{
     clusterOptions '--ntasks 1 --time 8:00:00 -A bharpur'
 
     input:
+    path refgenome 
     tuple path(bam), val(runAccession)
     tuple path(snps), path(snp_idx)
     tuple path(indels), path(indel_idx)
@@ -401,7 +409,7 @@ process base_recal_boot_init{
     script:
     """
 	gatk BaseRecalibrator \
-        -R ${params.refGenome} \
+        -R $refgenome \
         -I $bam \
         --known-sites $snps \
         --known-sites $indels \
@@ -417,6 +425,7 @@ process base_recal_boot_1{
     clusterOptions '--ntasks 1 --time 8:00:00 -A bharpur'
 
     input:
+    path refgenome
     tuple path(bam), val(runAccession), path(table), path(snps), path(snp_idx), path(indels), path(indel_idx)
 
 
@@ -428,13 +437,13 @@ process base_recal_boot_1{
     #ONE
     gatk ApplyBQSR \
         -I $bam \
-        -R ${params.refGenome} \
+        -R $refgenome \
         --bqsr-recal-file $table \
         -O recal.bam
 
     gatk BaseRecalibrator \
         -I recal.bam  \
-        -R ${params.refGenome} \
+        -R $refgenome \
         --known-sites $snps \
         --known-sites $indels \
         -O recal_data.table
@@ -453,6 +462,7 @@ process base_recal_boot_2{
     clusterOptions '--ntasks 1 --time 8:00:00 -A bharpur'
 
     input:
+    path refgenome
     tuple path(bam), val(runAccession), path(table), path(snps), path(snp_idx), path(indels), path(indel_idx)
 
     output:
@@ -463,13 +473,13 @@ process base_recal_boot_2{
     #TWO
     gatk ApplyBQSR \
         -I $bam \
-        -R ${params.refGenome} \
+        -R $refgenome \
         --bqsr-recal-file $table \
         -O recal_2.bam
 
     gatk BaseRecalibrator \
         -I recal_2.bam  \
-        -R ${params.refGenome} \
+        -R $refgenome \
         --known-sites $snps \
         --known-sites $indels \
         -O recal_data_2.table
@@ -488,6 +498,7 @@ process base_recal_boot_3{
     clusterOptions '--ntasks 1 --time 8:00:00 -A bharpur'
 
     input:
+    path refgenome
     tuple path(bam), val(runAccession), path(table), path(snps), path(snp_idx), path(indels), path(indel_idx)
 
 
@@ -499,13 +510,13 @@ process base_recal_boot_3{
     #THREE
     gatk ApplyBQSR \
         -I $bam \
-        -R ${params.refGenome} \
+        -R $refgenome \
         --bqsr-recal-file $table \
         -O recal_3.bam
 
     gatk BaseRecalibrator \
         -I recal_3.bam  \
-        -R ${params.refGenome} \
+        -R $refgenome \
         --known-sites $snps \
         --known-sites $indels \
         -O recal_data_3.table
@@ -562,52 +573,54 @@ workflow{
         | set {dupl_removed}
 
     if( params.knownSites != null ) {
-        base_recal1(dupl_removed) \
+        base_recal1(ch_refgenome, dupl_removed) \
             | set {base_recal1}
-        base_recal2(base_recal1) \
+        base_recal2(ch_refgenome, base_recal1) \
             | set {base_recal2}
-        base_recal3(base_recal2) \
+        base_recal3(ch_refgenome, base_recal2) \
             | set {base_recal_done}
-        haplotype_caller(base_recal_done) 
+        haplotype_caller(ch_refgenome, base_recal_done) 
     } else {
-        haplotype_caller(dupl_removed)        
+        haplotype_caller(ch_refgenome, dupl_removed)        
     }
     
     haplotype_caller.out.gvcf.collectFile(name: 'vcfs.list', newLine: true) \
         | set {vcfslist}
         
-    combine_gvcfs(vcfslist)
-    genotype_gvcfs(combine_gvcfs.out) 
+    combine_gvcfs(ch_refgenome, vcfslist)
+    genotype_gvcfs(ch_refgenome, combine_gvcfs.out) 
     
     // If no known-sites file is provided, we apply a harsh variant filter and use those high-confidence sites to perform base quality recalibration
     if( params.knownSites == null ) {
         
-        select_snps(genotype_gvcfs.out)
-        filter_snps(select_snps.out)
+        select_snps(ch_refgenome, genotype_gvcfs.out)
+        filter_snps(ch_refgenome, select_snps.out)
         apply_snp_filter(filter_snps.out)
 
-        select_indels(genotype_gvcfs.out)
-        filter_indels(select_indels.out)
+        select_indels(ch_refgenome, genotype_gvcfs.out)
+        filter_indels(ch_refgenome, select_indels.out)
         apply_indel_filter(filter_indels.out)
             
         // Note that we use the first() operator here to ensure that the snp/indel filter outputs are treated as values instead of queues
         base_recal_boot_init(
+            ch_refgenome, 
             dupl_removed,
             apply_snp_filter.out.first(),
             apply_indel_filter.out.first())
             
-        base_recal_boot_1(base_recal_boot_init.out)
-        base_recal_boot_2(base_recal_boot_1.out)
-        base_recal_boot_3(base_recal_boot_2.out)
+        base_recal_boot_1(ch_refgenome, base_recal_boot_init.out)
+        base_recal_boot_2(ch_refgenome, base_recal_boot_1.out)
+        base_recal_boot_3(ch_refgenome, base_recal_boot_2.out)
         base_recal_boot_3.out.view()
         
-        haplotype_caller_2(base_recal_boot_3.out) 
+        haplotype_caller_2(ch_refgenome, base_recal_boot_3.out) 
         haplotype_caller_2.out.gvcf.collectFile(name: 'vcfs.list', newLine: true) \
         | set {vcfslist_2}
         
-        combine_gvcfs_2(vcfslist_2)
-        genotype_gvcfs_2(combine_gvcfs_2.out)
+        combine_gvcfs_2(ch_refgenome, vcfslist_2)
+        genotype_gvcfs_2(ch_refgenome, combine_gvcfs_2.out)
         
+        genotype_gvcfs_2.out.view()
     }
     
     //alignment_cleanup(haplotype_caller.out.accession)
