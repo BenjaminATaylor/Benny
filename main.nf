@@ -1,10 +1,6 @@
 #!/usr/bin/env nextflow
 nextflow.enable.dsl=2
 
-include { haplotype_caller; haplotype_caller as haplotype_caller_2 } from './modules.nf'
-include { combine_gvcfs; combine_gvcfs as combine_gvcfs_2 } from './modules.nf'
-include { genotype_gvcfs; genotype_gvcfs as genotype_gvcfs_2 } from './modules.nf'
-
 //where to save the downloaded fastq files and initial versions of bam files (temporary, removed at the end)
 params.saveTemp = "/depot/bharpur/data/popgenomes/nextflow"
 //where to save the output files generated in the analyses
@@ -21,6 +17,13 @@ params.knownSites = null
 //pattern for filenaming
 params.fastqPath = "$RCAC_SCRATCH/fastq_files/"
 params.fastqPattern = "*_{1,2}.fq"
+
+include { haplotype_caller; haplotype_caller as haplotype_caller_2 } from './modules.nf'
+include { combine_gvcfs; combine_gvcfs as combine_gvcfs_2 } from './modules.nf'
+include { genotype_gvcfs; genotype_gvcfs as genotype_gvcfs_2 } from './modules.nf'
+
+ch_refgenome = Channel.value(file(params.refGenome))
+
 /*
 ========================================================================================
 ========================================================================================
@@ -45,10 +48,11 @@ params.fastqPattern = "*_{1,2}.fq"
 process alignment{
     tag "$runAccession"
     module 'bioinfo:samtools'
-    clusterOptions '--ntasks 1 --time 1-0:00:00 --mem=4G -A bharpur'
+    clusterOptions '--ntasks 1 --time 08:00:00 --mem=4G -A bharpur'
     //errorstrategy 'ignore'
 
     input:
+    path refgenome
     tuple val(runAccession), file(fastqs)
 
     output:
@@ -63,7 +67,7 @@ process alignment{
     mkdir -p ${params.saveTemp}/recal_bam_files
     mkdir -p ${params.saveTemp}/recal_plots
     mkdir -p ${params.saveTemp}/raw_snps
-    /depot/bharpur/apps/NextGenMap-0.5.2/bin/ngm-0.5.2/ngm -r ${params.refGenome} -1 $fastqs[0] -2 $fastqs[1] | samtools sort > ${params.saveTemp}/bam_files/"$runAccession".bam
+    /depot/bharpur/apps/NextGenMap-0.5.2/bin/ngm-0.5.2/ngm -r $refgenome -1 $fastqs[0] -2 $fastqs[1] | samtools sort > ${params.saveTemp}/bam_files/"$runAccession".bam
     """
 }
 /*
@@ -548,7 +552,7 @@ workflow{
         | view() \
         | set {fastq_secured}
 
-    alignment(fastq_secured) \
+    alignment(ch_refgenome,fastq_secured) \
         | set{align_done}
     
     check_duplicates(align_done) \
