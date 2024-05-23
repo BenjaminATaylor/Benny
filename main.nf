@@ -1,5 +1,10 @@
 #!/usr/bin/env nextflow
 nextflow.enable.dsl=2
+
+include { haplotype_caller; haplotype_caller as haplotype_caller_2 } from './modules.nf'
+include { combine_gvcfs; combine_gvcfs as combine_gvcfs_2 } from './modules.nf'
+include { genotype_gvcfs; genotype_gvcfs as genotype_gvcfs_2 } from './modules.nf'
+
 //where to save the downloaded fastq files and initial versions of bam files (temporary, removed at the end)
 params.saveTemp = "/depot/bharpur/data/popgenomes/nextflow"
 //where to save the output files generated in the analyses
@@ -241,76 +246,6 @@ process base_recal3{
     rm ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_2*
     """
 }
-/*
-========================================================================================
-    HAPLOTYPE CALLER
-========================================================================================
-*/
-process haplotype_caller{
-    tag "$runAccession"
-    module 'bioinfo:GATK'
-    clusterOptions '--ntasks 1 --time 1-00:00:00 -A bharpur'
-    //errorstrategy 'ignore'
-    
-    input:
-    tuple path(bam), val(runAccession)
-
-    output:
-    val runAccession, emit: accession
-    val vcfname, emit: gvcf
-    
-    script:
-    vcfname = params.savePath + "/raw_snps/" + runAccession + "_raw_snps.vcf"
-    """
-    gatk HaplotypeCaller \
-        -R ${params.refGenome} \
-        -I $bam \
-        -ERC GVCF \
-        -O ${params.savePath}/raw_snps/"$runAccession"_raw_snps.vcf
-    """
-}
-
-process combine_gvcfs{
-    module 'bioinfo:GATK'
-    clusterOptions '--ntasks 14 --mem=100G --time 1-00:00:00 -A bharpur'
-
-    input:
-    val vcfslist
-
-    output:
-    path 'combined.g.vcf'
-
-    script:
-    """    
-    gatk CombineGVCFs \
-        -R ${params.refGenome} \
-        --variant $vcfslist \
-        -O combined.g.vcf
-    """
-}
-
-process genotype_gvcfs{
-    
-    module 'bioinfo:GATK'
-    clusterOptions '--ntasks 14 --mem=100G --time 1-00:00:00 -A bharpur'
-    publishDir "${params.savePath}/raw_snps", mode: 'copy'
-    
-    input:
-    path combinedgvcfs
-
-    output:
-    tuple path('combined.vcf.gz'),path('combined.vcf.gz.tbi')
-    
-    script:
-    """
-    gatk GenotypeGVCFs \
-        -R ${params.refGenome} \
-        -V $combinedgvcfs \
-        -O combined.vcf.gz    
-    """
-
-    
-}
 
 /*
 ========================================================================================
@@ -374,16 +309,17 @@ process filter_snps{
     
     script:
     """
+    #Note that here we are looking only for the highest-confidence SNPs for downstream filtering, so we're going to use more conservative filters than typical
     gatk VariantFiltration \
         -R ${params.refGenome} \
         -V $rawsnpsvcf \
         -O filtered_snps.vcf \
-        -filter-name "QD_filter" -filter "QD < 2.0" \
-        -filter-name "FS_filter" -filter "FS > 60.0" \
-        -filter-name "MQ_filter" -filter "MQ < 40.0" \
-        -filter-name "SOR_filter" -filter "SOR > 4.0" \
-        -filter-name "MQRankSum_filter" -filter "MQRankSum < -12.5" \
-        -filter-name "ReadPosRankSum_filter" -filter "ReadPosRankSum < -8.0"
+        -filter-name "QD_filter" -filter "QD < 12.0" \
+        -filter-name "FS_filter" -filter "FS > 20.0" \
+        -filter-name "MQ_filter" -filter "MQ < 60.0" \
+        -filter-name "SOR_filter" -filter "SOR > 2.0" \
+        -filter-name "MQRankSum_filter" -filter "MQRankSum < -2.5" \
+        -filter-name "ReadPosRankSum_filter" -filter "ReadPosRankSum < -3.0"
     """ 
 }
 
@@ -400,13 +336,14 @@ process filter_indels{
     
     script:
     """
+    #Note that here we are looking only for the highest-confidence InDels for downstream filtering, so we're going to use more conservative filters than typical
     gatk VariantFiltration \
         -R ${params.refGenome} \
         -V $rawindelsvcf \
         -O filtered_indels.vcf \
-        -filter-name "QD_filter" -filter "QD < 2.0" \
-        -filter-name "FS_filter" -filter "FS > 200.0" \
-        -filter-name "SOR_filter" -filter "SOR > 10.0"
+        -filter-name "QD_filter" -filter "QD < 12.0" \
+        -filter-name "FS_filter" -filter "FS > 20.0" \
+        -filter-name "SOR_filter" -filter "SOR > 2.0"
     """ 
 }
 
@@ -645,29 +582,35 @@ workflow{
     combine_gvcfs(vcfslist)
     genotype_gvcfs(combine_gvcfs.out) 
     
-    genotype_gvcfs.out.view()
-
-    select_snps(genotype_gvcfs.out)
-    filter_snps(select_snps.out)
-    apply_snp_filter(filter_snps.out)
-
-    select_indels(genotype_gvcfs.out)
-    filter_indels(select_indels.out)
-    apply_indel_filter(filter_indels.out)
-    
-    apply_indel_filter.out.view()
-    
+    // If no known-sites file is provided, we apply a harsh variant filter and use those high-confidence sites to perform base quality recalibration
     if( params.knownSites == null ) {
-    // Note that we use the first() operator here to ensure that the snp/indel filter outputs are treated as values instead of queues
-    base_recal_boot_init(
-        dupl_removed,
-        apply_snp_filter.out.first(),
-        apply_indel_filter.out.first())
         
-    base_recal_boot_1(base_recal_boot_init.out)
-    base_recal_boot_2(base_recal_boot_1.out)
-    base_recal_boot_3(base_recal_boot_2.out)
-    base_recal_boot_3.out.view()
+        select_snps(genotype_gvcfs.out)
+        filter_snps(select_snps.out)
+        apply_snp_filter(filter_snps.out)
+
+        select_indels(genotype_gvcfs.out)
+        filter_indels(select_indels.out)
+        apply_indel_filter(filter_indels.out)
+            
+        // Note that we use the first() operator here to ensure that the snp/indel filter outputs are treated as values instead of queues
+        base_recal_boot_init(
+            dupl_removed,
+            apply_snp_filter.out.first(),
+            apply_indel_filter.out.first())
+            
+        base_recal_boot_1(base_recal_boot_init.out)
+        base_recal_boot_2(base_recal_boot_1.out)
+        base_recal_boot_3(base_recal_boot_2.out)
+        base_recal_boot_3.out.view()
+        
+        haplotype_caller_2(base_recal_boot_3.out) 
+        haplotype_caller_2.out.gvcf.collectFile(name: 'vcfs.list', newLine: true) \
+        | set {vcfslist_2}
+        
+        combine_gvcfs_2(vcfslist_2)
+        genotype_gvcfs_2(combine_gvcfs_2.out)
+        
     }
     
     //alignment_cleanup(haplotype_caller.out.accession)
