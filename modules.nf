@@ -11,6 +11,7 @@ process haplotype_caller{
     //errorstrategy 'ignore'
     
     input:
+    path refgenome
     tuple path(bam), val(runAccession)
 
     output:
@@ -21,7 +22,7 @@ process haplotype_caller{
     vcfname = params.savePath + "/raw_snps/" + runAccession + "_raw_snps.vcf"
     """
     gatk HaplotypeCaller \
-        -R ${params.refGenome} \
+        -R $refgenome \
         -I $bam \
         -ERC GVCF \
         -O ${params.savePath}/raw_snps/"$runAccession"_raw_snps.vcf
@@ -33,6 +34,7 @@ process combine_gvcfs{
     clusterOptions '--ntasks 14 --mem=100G --time 1-00:00:00 -A bharpur'
 
     input:
+    path refgenome
     val vcfslist
 
     output:
@@ -41,7 +43,7 @@ process combine_gvcfs{
     script:
     """    
     gatk CombineGVCFs \
-        -R ${params.refGenome} \
+        -R $refgenome \
         --variant $vcfslist \
         -O combined.g.vcf
     """
@@ -54,6 +56,7 @@ process genotype_gvcfs{
     publishDir "${params.savePath}/raw_snps", mode: 'copy'
     
     input:
+    path refgenome
     path combinedgvcfs
 
     output:
@@ -62,7 +65,7 @@ process genotype_gvcfs{
     script:
     """
     gatk GenotypeGVCFs \
-        -R ${params.refGenome} \
+        -R $refgenome \
         -V $combinedgvcfs \
         -O combined.vcf.gz    
     """

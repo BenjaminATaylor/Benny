@@ -1,8 +1,6 @@
 #!/usr/bin/env nextflow
 nextflow.enable.dsl=2
 
-//where to save the downloaded fastq files and initial versions of bam files (temporary, removed at the end)
-params.saveTemp = "/depot/bharpur/data/popgenomes/nextflow"
 //where to save the output files generated in the analyses
 params.savePath = "/depot/bharpur/data/popgenomes/nextflow/"
 
@@ -29,7 +27,7 @@ ch_refgenome = Channel.value(file(params.refGenome))
 ========================================================================================
 //A GENERALIZED VERSION OF THE DOWNLOAD, ALIGN, AND CALL HAPLOTYPES PIPELINE
 //ORIGINALLY DEVELOPED FOR HARPUR LAB (PURDUE ENTOMOLOGY) FOR APIS MELLIFERA GENOMICS BY BENNY GOLLER, OCT 2022
-//UPDATED BY BENJAMIN A TAYLOR, MAY 2024
+//HEAVILY UPDATED BY BENJAMIN A TAYLOR, MAY 2024
 ========================================================================================
 ========================================================================================
 */
@@ -44,15 +42,32 @@ ch_refgenome = Channel.value(file(params.refGenome))
 ========================================================================================
 */
 
+process index_genome{
+    
+    module 'bioinfo:samtools'
+    clusterOptions '--time 02:00:00 --mem=4G -A bharpur'
+    
+    input:
+    path refgenome
+    
+    output:
+    tuple path(refgenome), path('refgenome.fai')
+    
+    script:
+    """
+    samtools faidx $refgenome > refgenome.fai
+    """
+    
+}
+
 
 process alignment{
     tag "$runAccession"
     module 'bioinfo:samtools'
     clusterOptions '--ntasks 1 --time 08:00:00 --mem=4G -A bharpur'
-    //errorstrategy 'ignore'
 
     input:
-    path refgenome
+    tuple path(refgenome), path(refindex)
     tuple val(runAccession), file(fastqs)
 
     output:
@@ -60,13 +75,6 @@ process alignment{
 
     script:
     """
-    mkdir -p ${params.saveTemp}/bam_files
-    mkdir -p ${params.saveTemp}/updated_bam_files
-    mkdir -p ${params.saveTemp}/final_bam_files
-    mkdir -p ${params.saveTemp}/data_tables
-    mkdir -p ${params.saveTemp}/recal_bam_files
-    mkdir -p ${params.saveTemp}/recal_plots
-    mkdir -p ${params.saveTemp}/raw_snps
     /depot/bharpur/apps/NextGenMap-0.5.2/bin/ngm-0.5.2/ngm -r $refgenome -1 $fastqs[0] -2 $fastqs[1] | samtools sort > init.bam
     """
 }
@@ -115,12 +123,8 @@ process remove_duplicates{
 
     script:
     """
-    mkdir -p ${params.saveTemp}/fastq_files
-    mkdir -p ${params.saveTemp}/bam_files
-    mkdir -p ${params.saveTemp}/updated_bam_files
     mkdir -p ${params.savePath}/final_bam_files
     mkdir -p ${params.savePath}/data_tables
-    mkdir -p ${params.saveTemp}/recal_bam_files
     mkdir -p ${params.savePath}/recal_plots
     mkdir -p ${params.savePath}/raw_snps
     
@@ -145,37 +149,38 @@ process base_recal1{
     //errorstrategy 'ignore'
 
     input:
-    path refgenome
+    tuple path(refgenome), path(refindex)
+    path knownsites
     tuple path(bam), val(runAccession)
 
     output:
-    val runAccession
+    tuple val(runAccession), path('recal_1.bam'), path('recal_data_2.table')
 
     script:
     """        
     gatk BaseRecalibrator \
         -I $bam \
         -R $refgenome \
-        --known-sites ${params.knownSites} \
-        -O ${params.savePath}/data_tables/"$runAccession"_recal_data_1.table
+        --known-sites $knownsites \
+        -O recal_data_1.table
 
 
     #ONE
     gatk ApplyBQSR \
         -I ${params.savePath}/final_bam_files/"$runAccession"_final.bam \
         -R $refgenome \
-        --bqsr-recal-file ${params.savePath}/data_tables/"$runAccession"_recal_data_1.table \
-        -O ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_1.bam
+        --bqsr-recal-file recal_data_1.table \
+        -O recal_1.bam
 
     gatk BaseRecalibrator \
-        -I ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_1.bam  \
+        -I recal_1.bam  \
         -R $refgenome \
-        --known-sites ${params.knownSites} \
-        -O ${params.savePath}/data_tables/"$runAccession"_recal_data_2.table
+        --known-sites $knownsites \
+        -O recal_data_2.table
     
     gatk AnalyzeCovariates \
-        -before ${params.savePath}/data_tables/"$runAccession"_recal_data_1.table \
-        -after ${params.savePath}/data_tables/"$runAccession"_recal_data_2.table \
+        -before recal_data_1.table \
+        -after $recal_data_2.table \
         -plots ${params.savePath}/recal_plots/"$runAccession"_plot_1.pdf
     """
 }
@@ -187,33 +192,32 @@ process base_recal2{
     //errorstrategy 'ignore'
 
     input:
-    path refgenome
-    val runAccession
+    tuple path(refgenome), path(refindex)
+    path knownsites
+    tuple val(runAccession), path(recal_1_bam), path(recal_table_2)
 
     output:
-    val runAccession
+    tuple val(runAccession), path('recal_2.bam'), path('recal_data_3.table')
 
     script:
     """
     #TWO
     gatk ApplyBQSR \
-        -I ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_1.bam \
+        -I $recal_1_bam \
         -R $refgenome \
-        --bqsr-recal-file ${params.savePath}/data_tables/"$runAccession"_recal_data_2.table \
-        -O ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_2.bam
+        --bqsr-recal-file $recal_table_2 \
+        -O recal_2.bam
         
     gatk BaseRecalibrator \
-        -I ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_2.bam  \
+        -I recal_2.bam  \
         -R $refgenome \
-        --known-sites ${params.knownSites} \
-        -O ${params.savePath}/data_tables/"$runAccession"_recal_data_3.table
+        --known-sites $knownsites \
+        -O recal_data_3.table
     
     gatk AnalyzeCovariates \
-        -before ${params.savePath}/data_tables/"$runAccession"_recal_data_2.table \
-        -after ${params.savePath}/data_tables/"$runAccession"_recal_data_3.table \
+        -before $recal_table_2 \
+        -after recal_data_3.table \
         -plots ${params.savePath}/recal_plots/"$runAccession"_plot_2.pdf
-
-    rm ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_1*
     """
 }
 
@@ -224,8 +228,8 @@ process base_recal3{
     //errorstrategy 'ignore'
 
     input:
-    path refgenome
-    val runAccession
+    tuple path(refgenome), path(refindex)
+    tuple val(runAccession), path(recal_2_bam), path(recal_table_3)
 
     output:
     tuple path('finalrecal.bam'), val(runAccession)
@@ -234,23 +238,21 @@ process base_recal3{
     """   
     #THREE
     gatk ApplyBQSR \
-        -I ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_2.bam \
+        -I $recal_2_bam \
         -R $refgenome \
-        --bqsr-recal-file ${params.savePath}/data_tables/"$runAccession"_recal_data_3.table \
+        --bqsr-recal-file $recal_table_3 \
         -O finalrecal.bam
         
     gatk BaseRecalibrator \
         -I finalrecal.bam  \
         -R $refgenome \
-        --known-sites ${params.knownSites} \
-        -O ${params.savePath}/data_tables/"$runAccession"_recal_data_4.table
+        --known-sites $knownsites \
+        -O recal_data_4.table
     
     gatk AnalyzeCovariates \
-        -before ${params.savePath}/data_tables/"$runAccession"_recal_data_3.table \
-        -after ${params.savePath}/data_tables/"$runAccession"_recal_data_4.table \
+        -before $recal_table_3 \
+        -after recal_data_4.table \
         -plots ${params.savePath}/recal_plots/"$runAccession"_plot_3.pdf
-
-    rm ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_2*
     """
 }
 
@@ -267,7 +269,7 @@ process select_snps{
     clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
-    path refgenome
+    tuple path(refgenome), path(refindex)
     tuple path(rawvcf),path(idx)
     
     output:
@@ -289,7 +291,7 @@ process select_indels{
     clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
-    path refgenome
+    tuple path(refgenome), path(refindex)
     tuple path(rawvcf),path(idx)
     
     output:
@@ -311,7 +313,7 @@ process filter_snps{
     clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
-    path refgenome
+    tuple path(refgenome), path(refindex)
     path rawsnpsvcf
     
     output:
@@ -334,7 +336,7 @@ process filter_indels{
     clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
-    path refgenome
+    tuple path(refgenome), path(refindex)
     path rawindelsvcf
     
     output:
@@ -398,7 +400,7 @@ process base_recal_boot_init{
     clusterOptions '--ntasks 1 --time 8:00:00 -A bharpur'
 
     input:
-    path refgenome 
+    tuple path(refgenome), path(refindex) 
     tuple path(bam), val(runAccession)
     tuple path(snps), path(snp_idx)
     tuple path(indels), path(indel_idx)
@@ -425,7 +427,7 @@ process base_recal_boot_1{
     clusterOptions '--ntasks 1 --time 8:00:00 -A bharpur'
 
     input:
-    path refgenome
+    tuple path(refgenome), path(refindex)
     tuple path(bam), val(runAccession), path(table), path(snps), path(snp_idx), path(indels), path(indel_idx)
 
 
@@ -462,7 +464,7 @@ process base_recal_boot_2{
     clusterOptions '--ntasks 1 --time 8:00:00 -A bharpur'
 
     input:
-    path refgenome
+    tuple path(refgenome), path(refindex)
     tuple path(bam), val(runAccession), path(table), path(snps), path(snp_idx), path(indels), path(indel_idx)
 
     output:
@@ -498,7 +500,7 @@ process base_recal_boot_3{
     clusterOptions '--ntasks 1 --time 8:00:00 -A bharpur'
 
     input:
-    path refgenome
+    tuple path(refgenome), path(refindex)
     tuple path(bam), val(runAccession), path(table), path(snps), path(snp_idx), path(indels), path(indel_idx)
 
 
@@ -528,42 +530,20 @@ process base_recal_boot_3{
     """
 } 
 
-
-
-/*
-========================================================================================
-    CLEAN-UP
-========================================================================================
-*/
-
-process alignment_cleanup{
-    tag "$runAccession"
-    clusterOptions '--ntasks 1 --time 00:10:00 -A bharpur'
-
-    input:
-    val runAccession
-
-    output:
-    val runAccession
-    
-    script:
-    """
-    rm ${params.saveTemp}/bam_files/"$runAccession".bam                        
-    rm ${params.saveTemp}/updated_bam_files/"$runAccession"_updated.bam
-    rm ${params.saveTemp}/recal_bam_files/"$runAccession"_recal_3*
-    """
-}
 /*
 ========================================================================================
 ========================================================================================
 PIPELINE EXECUTION CONTROL
 */
 workflow{
+    
+    index_genome(ch_refgenome)
+    
     Channel.fromFilePairs(params.fastqPath+params.fastqPattern)
         | view() \
         | set {fastq_secured}
 
-    alignment(ch_refgenome,fastq_secured) \
+    alignment(index_genome.out,fastq_secured) \
         | set{align_done}
     
     check_duplicates(align_done) \
@@ -573,55 +553,54 @@ workflow{
         | set {dupl_removed}
 
     if( params.knownSites != null ) {
-        base_recal1(ch_refgenome, dupl_removed) \
+        ch_knownsites = Channel.value(file(params.knownSites))
+        base_recal1(index_genome.out, ch_knownsites, dupl_removed) \
             | set {base_recal1}
-        base_recal2(ch_refgenome, base_recal1) \
+        base_recal2(index_genome.out, ch_knownsites, base_recal1) \
             | set {base_recal2}
-        base_recal3(ch_refgenome, base_recal2) \
+        base_recal3(index_genome.out, ch_knownsites, base_recal2) \
             | set {base_recal_done}
-        haplotype_caller(ch_refgenome, base_recal_done) 
+        haplotype_caller(index_genome.out, base_recal_done) 
     } else {
-        haplotype_caller(ch_refgenome, dupl_removed)        
+        haplotype_caller(index_genome.out, dupl_removed)        
     }
     
     haplotype_caller.out.gvcf.collectFile(name: 'vcfs.list', newLine: true) \
         | set {vcfslist}
         
-    combine_gvcfs(ch_refgenome, vcfslist)
-    genotype_gvcfs(ch_refgenome, combine_gvcfs.out) 
+    combine_gvcfs(index_genome.out, vcfslist)
+    genotype_gvcfs(index_genome.out, combine_gvcfs.out) 
     
     // If no known-sites file is provided, we apply a harsh variant filter and use those high-confidence sites to perform base quality recalibration
     if( params.knownSites == null ) {
         
-        select_snps(ch_refgenome, genotype_gvcfs.out)
-        filter_snps(ch_refgenome, select_snps.out)
+        select_snps(index_genome.out, genotype_gvcfs.out)
+        filter_snps(index_genome.out, select_snps.out)
         apply_snp_filter(filter_snps.out)
 
-        select_indels(ch_refgenome, genotype_gvcfs.out)
-        filter_indels(ch_refgenome, select_indels.out)
+        select_indels(index_genome.out, genotype_gvcfs.out)
+        filter_indels(index_genome.out, select_indels.out)
         apply_indel_filter(filter_indels.out)
             
         // Note that we use the first() operator here to ensure that the snp/indel filter outputs are treated as values instead of queues
         base_recal_boot_init(
-            ch_refgenome, 
+            index_genome.out, 
             dupl_removed,
             apply_snp_filter.out.first(),
             apply_indel_filter.out.first())
             
-        base_recal_boot_1(ch_refgenome, base_recal_boot_init.out)
-        base_recal_boot_2(ch_refgenome, base_recal_boot_1.out)
-        base_recal_boot_3(ch_refgenome, base_recal_boot_2.out)
+        base_recal_boot_1(index_genome.out, base_recal_boot_init.out)
+        base_recal_boot_2(index_genome.out, base_recal_boot_1.out)
+        base_recal_boot_3(index_genome.out, base_recal_boot_2.out)
         base_recal_boot_3.out.view()
         
-        haplotype_caller_2(ch_refgenome, base_recal_boot_3.out) 
+        haplotype_caller_2(index_genome.out, base_recal_boot_3.out) 
         haplotype_caller_2.out.gvcf.collectFile(name: 'vcfs.list', newLine: true) \
         | set {vcfslist_2}
         
-        combine_gvcfs_2(ch_refgenome, vcfslist_2)
-        genotype_gvcfs_2(ch_refgenome, combine_gvcfs_2.out)
+        combine_gvcfs_2(index_genome.out, vcfslist_2)
+        genotype_gvcfs_2(index_genome.out, combine_gvcfs_2.out)
         
         genotype_gvcfs_2.out.view()
     }
-    
-    //alignment_cleanup(haplotype_caller.out.accession)
 }
