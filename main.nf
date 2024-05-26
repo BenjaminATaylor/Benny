@@ -44,18 +44,20 @@ ch_refgenome = Channel.value(file(params.refGenome))
 
 process index_genome{
     
-    module 'bioinfo:samtools'
-    clusterOptions '--time 02:00:00 --mem=4G -A bharpur'
+    module 'bioinfo:samtools:GATK'
+    clusterOptions '--time 5:00 --mem=1G -A bharpur'
     
     input:
     path refgenome
     
     output:
-    tuple path(refgenome), path('refgenome.fai')
+    tuple path(refgenome), path('*.fai'), path('*.dict')
     
     script:
     """
-    samtools faidx $refgenome > refgenome.fai
+    samtools faidx $refgenome > "$refgenome".fai
+    foo=\$(sed -r "s/\\.f[n]a.*//g" <<< $refgenome)
+    gatk CreateSequenceDictionary R=$refgenome O="\$foo.dict"
     """
     
 }
@@ -64,10 +66,10 @@ process index_genome{
 process alignment{
     tag "$runAccession"
     module 'bioinfo:samtools'
-    clusterOptions '--ntasks 1 --time 08:00:00 --mem=4G -A bharpur'
+    clusterOptions '--time 04:00:00 --mem=4G -A bharpur'
 
     input:
-    tuple path(refgenome), path(refindex)
+    tuple path(refgenome), path(refindex), path(refdict)
     tuple val(runAccession), file(fastqs)
 
     output:
@@ -87,7 +89,7 @@ process alignment{
 process check_duplicates{
     tag "$runAccession"
     module 'bioinfo:samtools:picard-tools:GATK'
-    clusterOptions '--ntasks 1 --time 4:00:00 -A bharpur'
+    clusterOptions '--time 4:00:00 -A bharpur'
     //errorstrategy 'ignore'
 
     input:
@@ -112,7 +114,7 @@ process check_duplicates{
 process remove_duplicates{
     tag "$runAccession"
     module 'bioinfo:samtools:picard-tools:GATK'
-    clusterOptions '--ntasks 1 --time 4:00:00 -A bharpur'
+    clusterOptions '--time 4:00:00 -A bharpur'
     //errorstrategy 'ignore'
 
     input:
@@ -145,11 +147,11 @@ process remove_duplicates{
 process base_recal1{
     tag "$runAccession"
     module 'bioinfo:GATK'
-    clusterOptions '--ntasks 1 --time 8:00:00 -A bharpur'
+    clusterOptions '--time 8:00:00 -A bharpur'
     //errorstrategy 'ignore'
 
     input:
-    tuple path(refgenome), path(refindex)
+    tuple path(refgenome), path(refindex), path(refdict)
     path knownsites
     tuple path(bam), val(runAccession)
 
@@ -188,11 +190,11 @@ process base_recal1{
 process base_recal2{
     tag "$runAccession"
     module 'bioinfo:GATK'
-    clusterOptions '--ntasks 1 --time 8:00:00 -A bharpur'
+    clusterOptions '--time 8:00:00 -A bharpur'
     //errorstrategy 'ignore'
 
     input:
-    tuple path(refgenome), path(refindex)
+    tuple path(refgenome), path(refindex), path(refdict)
     path knownsites
     tuple val(runAccession), path(recal_1_bam), path(recal_table_2)
 
@@ -224,11 +226,11 @@ process base_recal2{
 process base_recal3{
     tag "$runAccession"
     module 'bioinfo:GATK'
-    clusterOptions '--ntasks 1 --time 8:00:00 -A bharpur'
+    clusterOptions '--time 8:00:00 -A bharpur'
     //errorstrategy 'ignore'
 
     input:
-    tuple path(refgenome), path(refindex)
+    tuple path(refgenome), path(refindex), path(refdict)
     tuple val(runAccession), path(recal_2_bam), path(recal_table_3)
 
     output:
@@ -269,7 +271,7 @@ process select_snps{
     clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
-    tuple path(refgenome), path(refindex)
+    tuple path(refgenome), path(refindex), path(refdict)
     tuple path(rawvcf),path(idx)
     
     output:
@@ -291,7 +293,7 @@ process select_indels{
     clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
-    tuple path(refgenome), path(refindex)
+    tuple path(refgenome), path(refindex), path(refdict)
     tuple path(rawvcf),path(idx)
     
     output:
@@ -313,7 +315,7 @@ process filter_snps{
     clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
-    tuple path(refgenome), path(refindex)
+    tuple path(refgenome), path(refindex), path(refdict)
     path rawsnpsvcf
     
     output:
@@ -336,7 +338,7 @@ process filter_indels{
     clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
-    tuple path(refgenome), path(refindex)
+    tuple path(refgenome), path(refindex), path(refdict)
     path rawindelsvcf
     
     output:
@@ -397,10 +399,10 @@ process base_recal_boot_init{
     
     tag "$runAccession"
     module 'bioinfo:GATK'
-    clusterOptions '--ntasks 1 --time 8:00:00 -A bharpur'
+    clusterOptions '--time 8:00:00 -A bharpur'
 
     input:
-    tuple path(refgenome), path(refindex) 
+    tuple path(refgenome), path(refindex), path(refdict) 
     tuple path(bam), val(runAccession)
     tuple path(snps), path(snp_idx)
     tuple path(indels), path(indel_idx)
@@ -424,10 +426,10 @@ process base_recal_boot_1{
     
     tag "$runAccession"
     module 'bioinfo:GATK'
-    clusterOptions '--ntasks 1 --time 8:00:00 -A bharpur'
+    clusterOptions '--time 8:00:00 -A bharpur'
 
     input:
-    tuple path(refgenome), path(refindex)
+    tuple path(refgenome), path(refindex), path(refdict)
     tuple path(bam), val(runAccession), path(table), path(snps), path(snp_idx), path(indels), path(indel_idx)
 
 
@@ -461,10 +463,10 @@ process base_recal_boot_2{
     
     tag "$runAccession"
     module 'bioinfo:GATK'
-    clusterOptions '--ntasks 1 --time 8:00:00 -A bharpur'
+    clusterOptions '--time 8:00:00 -A bharpur'
 
     input:
-    tuple path(refgenome), path(refindex)
+    tuple path(refgenome), path(refindex), path(refdict)
     tuple path(bam), val(runAccession), path(table), path(snps), path(snp_idx), path(indels), path(indel_idx)
 
     output:
@@ -497,10 +499,10 @@ process base_recal_boot_3{
     
     tag "$runAccession"
     module 'bioinfo:GATK'
-    clusterOptions '--ntasks 1 --time 8:00:00 -A bharpur'
+    clusterOptions '--time 8:00:00 -A bharpur'
 
     input:
-    tuple path(refgenome), path(refindex)
+    tuple path(refgenome), path(refindex), path(refdict)
     tuple path(bam), val(runAccession), path(table), path(snps), path(snp_idx), path(indels), path(indel_idx)
 
 

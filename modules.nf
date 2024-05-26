@@ -11,7 +11,7 @@ process haplotype_caller{
     //errorstrategy 'ignore'
     
     input:
-    path refgenome
+    tuple path(refgenome), path(refindex), path(refdict)
     tuple path(bam), val(runAccession)
 
     output:
@@ -34,7 +34,7 @@ process combine_gvcfs{
     clusterOptions '--ntasks 14 --mem=100G --time 1-00:00:00 -A bharpur'
 
     input:
-    path refgenome
+    tuple path(refgenome), path(refindex), path(refdict)
     val vcfslist
 
     output:
@@ -56,7 +56,7 @@ process genotype_gvcfs{
     publishDir "${params.savePath}/raw_snps", mode: 'copy'
     
     input:
-    path refgenome
+    tuple path(refgenome), path(refindex), path(refdict)
     path combinedgvcfs
 
     output:
