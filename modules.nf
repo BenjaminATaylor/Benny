@@ -19,13 +19,13 @@ process haplotype_caller{
     val vcfname, emit: gvcf
     
     script:
-    vcfname = params.savePath + "/raw_snps/" + runAccession + "_raw_snps.vcf"
+    vcfname = params.savePath + "/raw_snps/" + runAccession + "_raw_snps.vcf.gz"
     """
     gatk HaplotypeCaller \
         -R $refgenome \
         -I $bam \
         -ERC GVCF \
-        -O ${params.savePath}/raw_snps/"$runAccession"_raw_snps.vcf
+        -O ${params.savePath}/raw_snps/"$runAccession"_raw_snps.vcf.gz
     """
 }
 
@@ -39,14 +39,18 @@ process combine_gvcfs{
     val vcfslist
 
     output:
-    path 'combined.g.vcf'
+    tuple path('combined.g.vcf.gz'), path('combined.g.vcf.gz.tbi')
+
 
     script:
     """    
     gatk CombineGVCFs \
         -R $refgenome \
         --variant $vcfslist \
-        -O combined.g.vcf
+        -O combined.g.vcf.gz
+        
+    gatk IndexFeatureFile \
+        -I combined.g.vcf.gz
     """
 }
 
@@ -58,7 +62,7 @@ process genotype_gvcfs{
     
     input:
     tuple path(refgenome), path(refindex), path(refdict)
-    path combinedgvcfs
+    tuple path(combinedgvcfs),path(index)
 
     output:
     tuple path('combined.vcf.gz'),path('combined.vcf.gz.tbi')

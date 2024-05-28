@@ -275,7 +275,7 @@ process select_snps{
     tuple path(rawvcf),path(idx)
     
     output:
-    path 'raw_snps.vcf'
+    tuple path('raw_snps.vcf.gz'), path('raw_snps.vcf.gz.tbi')
     
     script:
     """
@@ -283,7 +283,10 @@ process select_snps{
         -R $refgenome \
         -V $rawvcf \
         -select-type SNP \
-        -O raw_snps.vcf
+        -O raw_snps.vcf.gz
+        
+    gatk IndexFeatureFile \
+        -I raw_snps.vcf.gz
     """ 
 }
 
@@ -297,15 +300,18 @@ process select_indels{
     tuple path(rawvcf),path(idx)
     
     output:
-    path 'raw_indels.vcf'
-    
+    tuple path('raw_indels.vcf.gz'), path('raw_indels.vcf.gz.tbi')
+
     script:
     """
     gatk SelectVariants \
         -R $refgenome \
         -V $rawvcf \
         -select-type INDEL \
-        -O raw_indels.vcf
+        -O raw_indels.vcf.gz
+        
+    gatk IndexFeatureFile \
+        -I raw_indels.vcf.gz
     """ 
 }
 
@@ -316,10 +322,10 @@ process filter_snps{
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
-    path rawsnpsvcf
+    tuple path(rawsnpsvcf),path(index)
     
     output:
-    path 'filtered_snps.vcf'
+    tuple path('snps_filtered.vcf.gz'), path('snps_filtered.vcf.gz.tbi')
     
     script:
     """
@@ -327,8 +333,16 @@ process filter_snps{
     gatk VariantFiltration \
         -R $refgenome \
         -V $rawsnpsvcf \
-        -O filtered_snps.vcf \
-        -filter-name "QD_filter" -filter "QD < 25.0" \
+        -O filtered_snps.vcf.gz \
+        -filter-name "QD_filter" -filter "QD < 25.0" 
+        
+    gatk SelectVariants \
+        --exclude-filtered \
+        -V filtered_snps.vcf.gz \
+        -O snps_filtered.vcf.gz
+        
+    gatk IndexFeatureFile \
+        -I snps_filtered.vcf.gz
     """ 
 }
 
@@ -339,10 +353,10 @@ process filter_indels{
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
-    path rawindelsvcf
+    tuple path(rawindelsvcf),path(index)
     
     output:
-    path 'filtered_indels.vcf'
+    tuple path('indels_filtered.vcf.gz'), path('indels_filtered.vcf.gz.tbi')
     
     script:
     """
@@ -350,49 +364,17 @@ process filter_indels{
     gatk VariantFiltration \
         -R $refgenome \
         -V $rawindelsvcf \
-        -O filtered_indels.vcf \
-        -filter-name "QD_filter" -filter "QD < 25.0" \
+        -O filtered_indels.vcf.gz \
+        -filter-name "QD_filter" -filter "QD < 25.0" 
+        
+    gatk SelectVariants \
+        --exclude-filtered \
+        -V filtered_indels.vcf.gz \
+        -O indels_filtered.vcf.gz
+           
+    gatk IndexFeatureFile \
+        -I indels_filtered.vcf.gz
     """ 
-}
-
-process apply_snp_filter{
-    
-    container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
-
-    input:
-    path filteredsnps
-    
-    output:
-    tuple path('snps_filtered.vcf'), path('snps_filtered.vcf.idx')
-    
-    script:
-    """
-    gatk SelectVariants \
-        --exclude-filtered \
-        -V $filteredsnps \
-        -O snps_filtered.vcf
-    """
-}
-
-process apply_indel_filter{
-    
-    container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
-
-    input:
-    path rawindelsvcf
-    
-    output:
-    tuple path('indels_filtered.vcf'), path('indels_filtered.vcf.idx')
-    
-    script:
-    """
-    gatk SelectVariants \
-        --exclude-filtered \
-        -V $rawindelsvcf \
-        -O indels_filtered.vcf
-    """
 }
 
 process base_recal_boot_init{
@@ -507,7 +489,7 @@ process base_recal_boot_3{
 
 
     output:
-    tuple path('recal_3.bam'), val(runAccession), path('recal_data_3.table'), path(snps), path(snp_idx), path(indels), path(indel_idx)
+    tuple path('recal_3.bam'), val(runAccession)
     
     script:        
     """
@@ -536,32 +518,34 @@ process downstream_filter{
  
     container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--time 8:00:00 -A bharpur'
+    publishDir "${params.savePath}/filtered_snps", mode: 'copy'
 
     input:
-    path(combinedvcf)
+    tuple path(refgenome), path(refindex), path(dict)
+    tuple path(combinedvcf), path(vcfindex)
     
     output:
-    path('filtered_snps.vcf')
-    path('filtered_indels.vcf')
+    path('snps_filtered.vcf.gz')
+    path('indels_filtered.vcf.gz')
 
     script:
     """
     ##to make the inputs
     gatk SelectVariants \
         -R $refgenome \
-        -V $rawvcf \
+        -V $combinedvcf \
         -select-type SNP \
-        -O raw_snps.vcf
+        -O raw_snps.vcf.gz
         
     gatk SelectVariants \
         -R $refgenome \
-        -V $rawvcf \
+        -V $combinedvcf\
         -select-type INDEL \
-        -O raw_indels.vcf
+        -O raw_indels.vcf.gz
     
     #filter SNPs using default params
     gatk VariantFiltration \
-        -V raw_snps.vcf \
+        -V raw_snps.vcf.gz \
         -filter "QD < 2.0" --filter-name "QD2" \
         -filter "QUAL < 30.0" --filter-name "QUAL30" \
         -filter "SOR > 3.0" --filter-name "SOR3" \
@@ -573,7 +557,7 @@ process downstream_filter{
 
     #filter Indels using default params
     gatk VariantFiltration \
-        -V raw_indels.vcf \
+        -V raw_indels.vcf.gz \
         -filter "QD < 2.0" --filter-name "QD2" \
         -filter "QUAL < 30.0" --filter-name "QUAL30" \
         -filter "FS > 200.0" --filter-name "FS200" \
@@ -583,8 +567,6 @@ process downstream_filter{
     #output filtered:
     vcftools --gzvcf snps_filtered.vcf.gz --recode --remove-filtered-all --out snps_filtered.gz
     vcftools --gzvcf indels_filtered.vcf.gz --recode  --remove-filtered-all --out indels_filtered.gz
-    
-    
     
     """
 }
@@ -640,18 +622,16 @@ workflow{
         
         select_snps(index_genome.out, genotype_gvcfs.out)
         filter_snps(index_genome.out, select_snps.out)
-        apply_snp_filter(filter_snps.out)
 
         select_indels(index_genome.out, genotype_gvcfs.out)
         filter_indels(index_genome.out, select_indels.out)
-        apply_indel_filter(filter_indels.out)
             
         // Note that we use the first() operator here to ensure that the snp/indel filter outputs are treated as values instead of queues
         base_recal_boot_init(
             index_genome.out, 
             dupl_removed,
-            apply_snp_filter.out.first(),
-            apply_indel_filter.out.first())
+            filter_snps.out.first(),
+            filter_indels.out.first())
             
         base_recal_boot_1(index_genome.out, base_recal_boot_init.out)
         base_recal_boot_2(index_genome.out, base_recal_boot_1.out)
@@ -670,6 +650,6 @@ workflow{
     }
     
     // Downstream quality filtering of SNPs
-    // downstream_filter(combined_vcf)
+    downstream_filter(index_genome.out, combined_vcf)
 
 }
