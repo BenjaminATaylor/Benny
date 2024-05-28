@@ -1,5 +1,4 @@
 #!/usr/bin/env nextflow
-nextflow.enable.dsl=2
 
 //where to save the output files generated in the analyses
 params.savePath = "/depot/bharpur/data/popgenomes/nextflow/"
@@ -11,7 +10,6 @@ params.refGenome = "/depot/bharpur/data/ref_genomes/AMEL/Amel_HAv3.1_genomic.fna
 params.knownSites = null
 
 //path containing the fastq files
-//this is correct if you follow the readme guide and download to scratch
 //pattern for filenaming
 params.fastqPath = "$RCAC_SCRATCH/fastq_files/"
 params.fastqPattern = "*_{1,2}.fq"
@@ -44,7 +42,7 @@ ch_refgenome = Channel.value(file(params.refGenome))
 
 process index_genome{
     
-    module 'bioinfo:samtools:GATK'
+    container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--time 5:00 --mem=1G -A bharpur'
     
     input:
@@ -57,15 +55,15 @@ process index_genome{
     """
     samtools faidx $refgenome > "$refgenome".fai
     foo=\$(sed -r "s/\\.f[n]a.*//g" <<< $refgenome)
-    gatk CreateSequenceDictionary R=$refgenome O="\$foo.dict"
+    gatk CreateSequenceDictionary -R $refgenome -O "\$foo.dict"
     """
     
 }
 
-
 process alignment{
+    
     tag "$runAccession"
-    module 'bioinfo:samtools'
+    container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--time 04:00:00 --mem=4G -A bharpur'
 
     input:
@@ -87,10 +85,11 @@ process alignment{
 */
 
 process check_duplicates{
+    
     tag "$runAccession"
-    module 'bioinfo:samtools:picard-tools:GATK'
+    //module 'biocontainers:samtools:picard:gatk4'
+    container "quay.io/biocontainers/picard:3.1.1--hdfd78af_0"
     clusterOptions '--time 4:00:00 -A bharpur'
-    //errorstrategy 'ignore'
 
     input:
     tuple val(runAccession), path(inbam)
@@ -100,7 +99,7 @@ process check_duplicates{
 
     script:
     """
-    java -jar \$CLASSPATH AddOrReplaceReadGroups \
+    picard AddOrReplaceReadGroups \
         -I $inbam \
         -O AORRG.bam \
         -RGID 1 \
@@ -113,9 +112,9 @@ process check_duplicates{
 
 process remove_duplicates{
     tag "$runAccession"
-    module 'bioinfo:samtools:picard-tools:GATK'
-    clusterOptions '--time 4:00:00 -A bharpur'
-    //errorstrategy 'ignore'
+    //module 'biocontainers:samtools:picard:gatk4'
+    container "docker.io/broadinstitute/gatk:4.5.0.0"
+    clusterOptions '--time 4:00:00 --mem=4G -A bharpur'
 
     input:
     tuple val(runAccession), path(inbam)
@@ -145,10 +144,10 @@ process remove_duplicates{
 ========================================================================================
 */
 process base_recal1{
+    
     tag "$runAccession"
-    module 'bioinfo:GATK'
+    container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--time 8:00:00 -A bharpur'
-    //errorstrategy 'ignore'
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
@@ -188,10 +187,10 @@ process base_recal1{
 }
 
 process base_recal2{
+    
     tag "$runAccession"
-    module 'bioinfo:GATK'
+    container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--time 8:00:00 -A bharpur'
-    //errorstrategy 'ignore'
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
@@ -224,10 +223,11 @@ process base_recal2{
 }
 
 process base_recal3{
+    
     tag "$runAccession"
-    module 'bioinfo:GATK'
+    container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--time 8:00:00 -A bharpur'
-    //errorstrategy 'ignore'
+
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
@@ -267,7 +267,7 @@ process base_recal3{
 
 process select_snps{
     
-    module 'bioinfo:GATK'
+    container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
@@ -289,7 +289,7 @@ process select_snps{
 
 process select_indels{
     
-    module 'bioinfo:GATK'
+    container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
@@ -311,7 +311,7 @@ process select_indels{
 
 process filter_snps{
     
-    module 'bioinfo:GATK'
+    container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
@@ -334,7 +334,7 @@ process filter_snps{
 
 process filter_indels{
     
-    module 'bioinfo:GATK'
+    container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
@@ -357,7 +357,7 @@ process filter_indels{
 
 process apply_snp_filter{
     
-    module 'bioinfo:GATK'
+    container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
@@ -377,7 +377,7 @@ process apply_snp_filter{
 
 process apply_indel_filter{
     
-    module 'bioinfo:GATK'
+    container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
@@ -398,7 +398,7 @@ process apply_indel_filter{
 process base_recal_boot_init{
     
     tag "$runAccession"
-    module 'bioinfo:GATK'
+    container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--time 8:00:00 -A bharpur'
 
     input:
@@ -425,7 +425,7 @@ process base_recal_boot_init{
 process base_recal_boot_1{
     
     tag "$runAccession"
-    module 'bioinfo:GATK'
+    container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--time 8:00:00 -A bharpur'
 
     input:
@@ -462,7 +462,7 @@ process base_recal_boot_1{
 process base_recal_boot_2{
     
     tag "$runAccession"
-    module 'bioinfo:GATK'
+    container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--time 8:00:00 -A bharpur'
 
     input:
@@ -498,7 +498,7 @@ process base_recal_boot_2{
 process base_recal_boot_3{
     
     tag "$runAccession"
-    module 'bioinfo:GATK'
+    container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--time 8:00:00 -A bharpur'
 
     input:
@@ -531,6 +531,67 @@ process base_recal_boot_3{
         -plots ${params.savePath}/recal_plots/"$runAccession"_plot_3.pdf
     """
 } 
+
+process downstream_filter{
+ 
+    container "docker.io/broadinstitute/gatk:4.5.0.0"
+    clusterOptions '--time 8:00:00 -A bharpur'
+
+    input:
+    path(combinedvcf)
+    
+    output:
+    path('filtered_snps.vcf')
+    path('filtered_indels.vcf')
+
+    script:
+    """
+    ##to make the inputs
+    gatk SelectVariants \
+        -R $refgenome \
+        -V $rawvcf \
+        -select-type SNP \
+        -O raw_snps.vcf
+        
+    gatk SelectVariants \
+        -R $refgenome \
+        -V $rawvcf \
+        -select-type INDEL \
+        -O raw_indels.vcf
+    
+    #filter SNPs using default params
+    gatk VariantFiltration \
+        -V raw_snps.vcf \
+        -filter "QD < 2.0" --filter-name "QD2" \
+        -filter "QUAL < 30.0" --filter-name "QUAL30" \
+        -filter "SOR > 3.0" --filter-name "SOR3" \
+        -filter "FS > 60.0" --filter-name "FS60" \
+        -filter "MQ < 40.0" --filter-name "MQ40" \
+        -filter "MQRankSum < -12.5" --filter-name "MQRankSum-12.5" \
+        -filter "ReadPosRankSum < -8.0" --filter-name "ReadPosRankSum-8" \
+        -O snps_filtered.vcf.gz
+
+    #filter Indels using default params
+    gatk VariantFiltration \
+        -V raw_indels.vcf \
+        -filter "QD < 2.0" --filter-name "QD2" \
+        -filter "QUAL < 30.0" --filter-name "QUAL30" \
+        -filter "FS > 200.0" --filter-name "FS200" \
+        -filter "ReadPosRankSum < -20.0" --filter-name "ReadPosRankSum-20" \
+        -O indels_filtered.vcf.gz
+        
+    #output filtered:
+    vcftools --gzvcf snps_filtered.vcf.gz --recode --remove-filtered-all --out snps_filtered.gz
+    vcftools --gzvcf indels_filtered.vcf.gz --recode  --remove-filtered-all --out indels_filtered.gz
+    
+    
+    
+    """
+}
+
+
+
+
 
 /*
 ========================================================================================
@@ -571,7 +632,8 @@ workflow{
         | set {vcfslist}
         
     combine_gvcfs(index_genome.out, vcfslist)
-    genotype_gvcfs(index_genome.out, combine_gvcfs.out) 
+    genotype_gvcfs(index_genome.out, combine_gvcfs.out) \
+    | set {combined_vcf}
     
     // If no known-sites file is provided, we apply a harsh variant filter and use those high-confidence sites to perform base quality recalibration
     if( params.knownSites == null ) {
@@ -601,8 +663,13 @@ workflow{
         | set {vcfslist_2}
         
         combine_gvcfs_2(index_genome.out, vcfslist_2)
-        genotype_gvcfs_2(index_genome.out, combine_gvcfs_2.out)
+        genotype_gvcfs_2(index_genome.out, combine_gvcfs_2.out) \
+        | set {combined_vcf}
         
         genotype_gvcfs_2.out.view()
     }
+    
+    // Downstream quality filtering of SNPs
+    // downstream_filter(combined_vcf)
+
 }

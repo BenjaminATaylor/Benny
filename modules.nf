@@ -5,10 +5,10 @@
 */
 
 process haplotype_caller{
+    
     tag "$runAccession"
-    module 'bioinfo:GATK'
+    container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--ntasks 1 --time 1-00:00:00 -A bharpur'
-    //errorstrategy 'ignore'
     
     input:
     tuple path(refgenome), path(refindex), path(refdict)
@@ -30,7 +30,8 @@ process haplotype_caller{
 }
 
 process combine_gvcfs{
-    module 'bioinfo:GATK'
+    
+    container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--ntasks 14 --mem=100G --time 1-00:00:00 -A bharpur'
 
     input:
@@ -51,7 +52,7 @@ process combine_gvcfs{
 
 process genotype_gvcfs{
     
-    module 'bioinfo:GATK'
+    container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--ntasks 14 --mem=100G --time 1-00:00:00 -A bharpur'
     publishDir "${params.savePath}/raw_snps", mode: 'copy'
     
