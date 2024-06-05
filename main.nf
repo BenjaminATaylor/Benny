@@ -9,11 +9,6 @@ params.refGenome = "/depot/bharpur/data/ref_genomes/AMEL/Amel_HAv3.1_genomic.fna
 //set knownsites empty by default
 params.knownSites = null
 
-//path containing the fastq files
-//pattern for filenaming
-params.fastqPath = "$RCAC_SCRATCH/fastq_files/"
-params.fastqPattern = "*_{1,2}.fq"
-
 include { haplotype_caller; haplotype_caller as haplotype_caller_2 } from './modules.nf'
 include { combine_gvcfs; combine_gvcfs as combine_gvcfs_2 } from './modules.nf'
 include { genotype_gvcfs; genotype_gvcfs as genotype_gvcfs_2 } from './modules.nf'
@@ -43,7 +38,7 @@ ch_refgenome = Channel.value(file(params.refGenome))
 process index_genome{
     
     container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--time 5:00 --mem=1G -A bharpur'
+    clusterOptions '--time 1-00:00:00 --mem=1G -A bharpur'
     
     input:
     path refgenome
@@ -64,7 +59,7 @@ process alignment{
     
     tag "$runAccession"
     container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--time 04:00:00 --mem=4G -A bharpur'
+    clusterOptions '--time 24:00:00 --mem=4G -A bharpur'
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
@@ -563,17 +558,30 @@ process downstream_filter{
         -filter "FS > 200.0" --filter-name "FS200" \
         -filter "ReadPosRankSum < -20.0" --filter-name "ReadPosRankSum-20" \
         -O indels_filtered.vcf.gz
-        
-    #output filtered:
-    vcftools --gzvcf snps_filtered.vcf.gz --recode --remove-filtered-all --out snps_filtered.gz
-    vcftools --gzvcf indels_filtered.vcf.gz --recode  --remove-filtered-all --out indels_filtered.gz
-    
     """
 }
-
-
-
-
+    
+    process recode_vcfs{
+        
+        container "pegi3s/vcftools:0.1.16"
+        clusterOptions '--time 8:00:00 -A bharpur'
+        publishDir "${params.savePath}/filtered_snps", mode: 'copy'
+        
+        input:
+        path(snps)
+        path(indels)
+        
+        output:
+        path('snps_filtered_recode.vcf.gz')
+        path('indels_filtered_recode.vcf.gz')
+        
+        script:
+        """
+        vcftools --gzvcf $snps --recode --remove-filtered-all --stdout | gzip -c > 'snps_filtered_recode.vcf.gz'
+        vcftools --gzvcf $indels --recode  --remove-filtered-all --stdout | gzip -c > 'indels_filtered_recode.vcf.gz'
+        """
+}
+    
 
 /*
 ========================================================================================
@@ -582,9 +590,13 @@ PIPELINE EXECUTION CONTROL
 */
 workflow{
     
+    //Channel
+    //    .fromSRA( 'SRP043510' )
+    //    .view()
+    
     index_genome(ch_refgenome)
     
-    Channel.fromFilePairs(params.fastqPath+params.fastqPattern)
+    Channel.fromFilePairs(params.fqPattern)
         | view() \
         | set {fastq_secured}
 
@@ -651,5 +663,8 @@ workflow{
     
     // Downstream quality filtering of SNPs
     downstream_filter(index_genome.out, combined_vcf)
+    // Recode (useful for some analyses)
+    recode_vcfs(downstream_filter.out)
+
 
 }
