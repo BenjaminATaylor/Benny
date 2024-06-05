@@ -37,8 +37,9 @@ ch_refgenome = Channel.value(file(params.refGenome))
 
 process index_genome{
     
+    time '1d'
+    memory '1 GB'
     container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--time 1-00:00:00 --mem=1G -A bharpur'
     
     input:
     path refgenome
@@ -57,9 +58,10 @@ process index_genome{
 
 process alignment{
     
+    time '1d'
+    memory '4 GB'
     tag "$runAccession"
     container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--time 24:00:00 --mem=4G -A bharpur'
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
@@ -81,10 +83,9 @@ process alignment{
 
 process check_duplicates{
     
+    time '4h'
     tag "$runAccession"
-    //module 'biocontainers:samtools:picard:gatk4'
     container "quay.io/biocontainers/picard:3.1.1--hdfd78af_0"
-    clusterOptions '--time 4:00:00 -A bharpur'
 
     input:
     tuple val(runAccession), path(inbam)
@@ -106,10 +107,11 @@ process check_duplicates{
 }
 
 process remove_duplicates{
+    
+    time '4h'
+    memory '4 GB'
     tag "$runAccession"
-    //module 'biocontainers:samtools:picard:gatk4'
     container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--time 4:00:00 --mem=4G -A bharpur'
 
     input:
     tuple val(runAccession), path(inbam)
@@ -140,9 +142,9 @@ process remove_duplicates{
 */
 process base_recal1{
     
+    time '8h'
     tag "$runAccession"
     container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--time 8:00:00 -A bharpur'
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
@@ -183,9 +185,9 @@ process base_recal1{
 
 process base_recal2{
     
+    time '8h'
     tag "$runAccession"
     container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--time 8:00:00 -A bharpur'
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
@@ -219,6 +221,7 @@ process base_recal2{
 
 process base_recal3{
     
+    time '8h'
     tag "$runAccession"
     container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--time 8:00:00 -A bharpur'
@@ -262,8 +265,9 @@ process base_recal3{
 
 process select_snps{
     
+    time '1d'
+    memory '50 GB'
     container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
@@ -287,8 +291,9 @@ process select_snps{
 
 process select_indels{
     
+    time '1d'
+    memory '50 GB'
     container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
@@ -312,8 +317,9 @@ process select_indels{
 
 process filter_snps{
     
+    time '1d'
+    memory '50 GB'
     container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
@@ -343,8 +349,9 @@ process filter_snps{
 
 process filter_indels{
     
+    time '1d'
+    memory '50 GB'
     container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--mem=50G --time 1-00:00:00 -A bharpur'
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
@@ -374,9 +381,9 @@ process filter_indels{
 
 process base_recal_boot_init{
     
+    time '8h'
     tag "$runAccession"
     container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--time 8:00:00 -A bharpur'
 
     input:
     tuple path(refgenome), path(refindex), path(refdict) 
@@ -401,9 +408,9 @@ process base_recal_boot_init{
        
 process base_recal_boot_1{
     
+    time '8h'
     tag "$runAccession"
     container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--time 8:00:00 -A bharpur'
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
@@ -438,9 +445,9 @@ process base_recal_boot_1{
 
 process base_recal_boot_2{
     
+    time '8h'
     tag "$runAccession"
     container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--time 8:00:00 -A bharpur'
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
@@ -474,9 +481,9 @@ process base_recal_boot_2{
 
 process base_recal_boot_3{
     
+    time '8h'
     tag "$runAccession"
     container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--time 8:00:00 -A bharpur'
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
@@ -511,8 +518,8 @@ process base_recal_boot_3{
 
 process downstream_filter{
  
+    time '8h'
     container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--time 8:00:00 -A bharpur'
     publishDir "${params.savePath}/filtered_snps", mode: 'copy'
 
     input:
@@ -563,8 +570,8 @@ process downstream_filter{
     
     process recode_vcfs{
         
+        time '8h'
         container "pegi3s/vcftools:0.1.16"
-        clusterOptions '--time 8:00:00 -A bharpur'
         publishDir "${params.savePath}/filtered_snps", mode: 'copy'
         
         input:
