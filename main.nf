@@ -56,23 +56,75 @@ process index_genome{
     
 }
 
-process alignment{
-    
-    time '1d'
-    memory '4 GB'
+process fastp {
+
+    time '2h'
+    memory '10 GB'
     tag "$runAccession"
-    container "docker.io/broadinstitute/gatk:4.5.0.0"
+    publishDir "${params.savePath}/fastp", mode: 'copy'
+    container "docker.io/biocontainers/fastp:v0.20.1_cv1"
+    clusterOptions '--ntasks 16 -A bharpur'
+
+    input:
+    tuple val(runAccession), file(fastq1), file(fastq2)
+
+    output:
+    tuple val(runAccession), path('trim_1.fq'), path('trim_2.fq')
+
+    script:
+    //TODO: re-parameterize the trimmomatic command for optimal trimming
+    """
+    mkdir -p ${params.savePath}/fastp
+    fastp -i $fastq1 -I $fastq2 -o trim_1.fq -O trim_2.fq \
+        --thread 16 --detect_adapter_for_pe -j ${runAccession}_fastp_log.json -h ${runAccession}_fastp_log.html
+
+    """
+}
+
+process fastqc {
+
+    time '8h'
+    memory '8 GB'
+    tag "$runAccession"
+    publishDir "${params.savePath}/fastqc", mode: 'copy'
+    container "docker.io/biocontainers/fastqc:v0.11.9_cv8"
+    clusterOptions '--ntasks 8 -A bharpur'
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
-    tuple val(runAccession), file(fastqs)
+    tuple val(runAccession), file(fastq1), file(fastq2)
+
+    output:
+    path('fastqc_1')
+    path('fastqc_2')
+
+    script:
+    """
+    mkdir -p ${params.savePath}/fastqc
+    mkdir fastqc_1 ; mkdir fastqc_2
+    fastqc -t 8 $fastq1 --outdir="fastqc_1"
+    fastqc -t 8 $fastq2 --outdir="fastqc_2"
+    """
+}
+
+process alignment{
+    
+    time '2d'
+    memory '10 GB'
+    tag "$runAccession"
+    container "docker.io/broadinstitute/gatk:4.5.0.0"
+    clusterOptions '--ntasks 16 -A bharpur'
+
+    input:
+    tuple path(refgenome), path(refindex), path(refdict)
+    tuple val(runAccession), path(fq1), path(fq2)
 
     output:
     tuple val(runAccession), path('init.bam')
 
     script:
     """
-    /depot/bharpur/apps/NextGenMap-0.5.2/bin/ngm-0.5.2/ngm -r $refgenome -1 $fastqs[0] -2 $fastqs[1] | samtools sort > init.bam
+    /depot/bharpur/apps/NextGenMap-0.5.2/bin/ngm-0.5.2/ngm -r $refgenome -1 $fq1 -2 $fq2 -t 16 | samtools sort > init.bam
     """
 }
 /*
@@ -224,7 +276,6 @@ process base_recal3{
     time '8h'
     tag "$runAccession"
     container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--time 8:00:00 -A bharpur'
 
 
     input:
@@ -603,11 +654,15 @@ workflow{
     
     index_genome(ch_refgenome)
     
-    Channel.fromFilePairs(params.fqPattern)
+    Channel.fromFilePairs(params.fqPattern, flat:true)
         | view() \
         | set {fastq_secured}
+        
+    fastp(fastq_secured)
 
-    alignment(index_genome.out,fastq_secured) \
+    fastqc(index_genome.out,fastp.out)
+
+    alignment(index_genome.out,fastp.out) \
         | set{align_done}
     
     check_duplicates(align_done) \
@@ -636,7 +691,7 @@ workflow{
     genotype_gvcfs(index_genome.out, combine_gvcfs.out) \
     | set {combined_vcf}
     
-    // If no known-sites file is provided, we apply a harsh variant filter and use those high-confidence sites to perform base quality recalibration
+    // If no known-sites file is provided, we apply a harsh variant filter and use the remaining high-confidence sites to perform base quality recalibration
     if( params.knownSites == null ) {
         
         select_snps(index_genome.out, genotype_gvcfs.out)
