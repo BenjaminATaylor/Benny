@@ -110,7 +110,7 @@ process fastqc {
 process alignment{
     
     time '2d'
-    memory '10 GB'
+    memory '15 GB'
     tag "$runAccession"
     container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--ntasks 16 -A bharpur'
