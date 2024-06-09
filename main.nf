@@ -61,7 +61,7 @@ process fastp {
     time '2h'
     memory '10 GB'
     tag "$runAccession"
-    publishDir "${params.savePath}/fastp", mode: 'copy'
+    publishDir "${params.savePath}/fastp", mode: 'copy', pattern: '*_log.*'
     container "docker.io/biocontainers/fastp:v0.20.1_cv1"
     clusterOptions '--ntasks 16 -A bharpur'
 
@@ -69,10 +69,10 @@ process fastp {
     tuple val(runAccession), file(fastq1), file(fastq2)
 
     output:
-    tuple val(runAccession), path('trim_1.fq'), path('trim_2.fq')
+    tuple val(runAccession), path('trim_1.fq'), path('trim_2.fq'), emit: passOn
+    tuple path('*_log.html'), ('*_log.json')
 
     script:
-    //TODO: re-parameterize the trimmomatic command for optimal trimming
     """
     mkdir -p ${params.savePath}/fastp
     fastp -i $fastq1 -I $fastq2 -o trim_1.fq -O trim_2.fq \
@@ -660,7 +660,7 @@ workflow{
         
     fastp(fastq_secured)
 
-    fastqc(index_genome.out,fastp.out)
+    fastqc(index_genome.out,fastp.out.passOn)
 
     alignment(index_genome.out,fastp.out) \
         | set{align_done}
