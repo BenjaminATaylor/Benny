@@ -70,7 +70,7 @@ process fastp {
 
     output:
     tuple val(runAccession), path('trim_1.fq'), path('trim_2.fq'), emit: passOn
-    tuple path('*_log.html'), ('*_log.json')
+    tuple path('*_log.html'), path('*_log.json')
 
     script:
     """
@@ -110,10 +110,10 @@ process fastqc {
 process alignment{
     
     time '2d'
-    memory '15 GB'
+    memory '64 GB'
     tag "$runAccession"
     container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--ntasks 16 -A bharpur'
+    clusterOptions '--ntasks 32 -A bharpur'
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
@@ -124,7 +124,7 @@ process alignment{
 
     script:
     """
-    /depot/bharpur/apps/NextGenMap-0.5.2/bin/ngm-0.5.2/ngm -r $refgenome -1 $fq1 -2 $fq2 -t 16 | samtools sort > init.bam
+    /depot/bharpur/apps/NextGenMap-0.5.2/bin/ngm-0.5.2/ngm -r $refgenome -1 $fq1 -2 $fq2 -t 32 | samtools sort > init.bam
     """
 }
 /*
@@ -161,7 +161,7 @@ process check_duplicates{
 process remove_duplicates{
     
     time '4h'
-    memory '4 GB'
+    memory '24 GB'
     tag "$runAccession"
     container "docker.io/broadinstitute/gatk:4.5.0.0"
 
@@ -662,7 +662,7 @@ workflow{
 
     fastqc(index_genome.out,fastp.out.passOn)
 
-    alignment(index_genome.out,fastp.out) \
+    alignment(index_genome.out,fastp.out.passOn) \
         | set{align_done}
     
     check_duplicates(align_done) \
