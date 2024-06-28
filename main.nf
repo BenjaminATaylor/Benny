@@ -86,7 +86,7 @@ process fastqc {
     time '8h'
     memory '8 GB'
     tag "$runAccession"
-    publishDir "${params.savePath}/fastqc", mode: 'copy'
+    publishDir "${params.savePath}/fastqc/$runAccession", mode: 'copy'
     container "docker.io/biocontainers/fastqc:v0.11.9_cv8"
     clusterOptions '--ntasks 8 -A bharpur'
 
@@ -95,23 +95,44 @@ process fastqc {
     tuple val(runAccession), file(fastq1), file(fastq2)
 
     output:
-    path('fastqc_1')
-    path('fastqc_2')
+    path('*_fastqc_1')
+    path('*_fastqc_2')
 
     script:
     """
-    mkdir -p ${params.savePath}/fastqc
-    mkdir fastqc_1 ; mkdir fastqc_2
-    fastqc -t 8 $fastq1 --outdir="fastqc_1"
-    fastqc -t 8 $fastq2 --outdir="fastqc_2"
+    mkdir -p ${params.savePath}/fastqc/$runAccession
+    mkdir $runAccession"_fastqc_1" ; mkdir $runAccession"_fastqc_2"
+    fastqc -t 8 $fastq1 --outdir=$runAccession"_fastqc_1"
+    fastqc -t 8 $fastq2 --outdir=$runAccession"_fastqc_2"
     """
+}
+
+process multiqc {
+    
+    time '8h'
+    memory '8 GB'
+    publishDir "${params.savePath}/multiqc/", mode: 'copy'
+    container "docker.io/staphb/multiqc:1.22.2"
+    
+    input: 
+    path fastqcs
+    
+    output:
+    path 'combined_multiqc'
+    
+    script:
+    """
+    mkdir -p combined_multiqc
+    multiqc $fastqcs --outdir combined_multiqc
+    """   
 }
 
 process alignment{
     
     time '2d'
-    memory '64 GB'
+    memory '48 GB'
     tag "$runAccession"
+    publishDir "${params.savePath}/raw_bams", mode: 'symlink'
     container "docker.io/broadinstitute/gatk:4.5.0.0"
     clusterOptions '--ntasks 32 -A bharpur'
 
@@ -120,11 +141,12 @@ process alignment{
     tuple val(runAccession), path(fq1), path(fq2)
 
     output:
-    tuple val(runAccession), path('init.bam')
+    tuple val(runAccession), path('*_raw.bam')
 
     script:
     """
-    /depot/bharpur/apps/NextGenMap-0.5.2/bin/ngm-0.5.2/ngm -r $refgenome -1 $fq1 -2 $fq2 -t 32 | samtools sort > init.bam
+    mkdir -p ${params.savePath}/raw_bams
+    /depot/bharpur/apps/NextGenMap-0.5.2/bin/ngm-0.5.2/ngm -r $refgenome -1 $fq1 -2 $fq2 -t 32 | samtools sort > $runAccession'_raw.bam'
     """
 }
 /*
@@ -177,6 +199,7 @@ process remove_duplicates{
     mkdir -p ${params.savePath}/data_tables
     mkdir -p ${params.savePath}/recal_plots
     mkdir -p ${params.savePath}/raw_snps
+    mkdir -p ${params.savePath}/qualimap
     
     gatk MarkDuplicates\
         -I $inbam \
@@ -184,6 +207,48 @@ process remove_duplicates{
         -M marked_dup_metrics.txt  \
         --REMOVE_SEQUENCING_DUPLICATES true \
         --CREATE_INDEX true
+    """
+}
+
+process qualimap{
+
+    publishDir "${params.savePath}/qualimap", mode: 'copy'
+    time '6h'
+    memory '24 GB'
+    tag "$runAccession"
+    container "docker.io/pegi3s/qualimap:2.2.1"
+    clusterOptions '--ntasks 16 -A bharpur'
+
+    input:
+    tuple path(dupRemBam),val(runAccession)
+
+    output:
+    path '*/*_qualimap.pdf'
+    
+    script: 
+    """
+    qualimap bamqc -bam $dupRemBam -outfile $runAccession"_qualimap.pdf"
+    """
+}
+
+process qualimap_collate{
+    
+    publishDir '{params.publish_dir}/qualimap_multiqc', mode: 'copy'
+    module 'biocontainers:qualimap/2.2.1'
+
+    input:
+    file
+
+    script:
+    outdir = params.publish_dir + "/qualimap_multiqc/"
+
+    """
+    ml biocontainers qualimap/2.2.1
+    
+    mkdir -p $outdir
+    unset DISPLAY
+
+    qualimap multi-bamqc -d $qualframe -outdir $outdir
     """
 }
 
@@ -654,14 +719,16 @@ workflow{
     
     index_genome(ch_refgenome)
     
-    Channel.fromFilePairs(params.fqPattern, flat:true)
+    Channel.fromFilePairs(params.fqPattern, flat:true) \
         | view() \
         | set {fastq_secured}
         
     fastp(fastq_secured)
 
-    fastqc(index_genome.out,fastp.out.passOn)
-
+    fastqc(index_genome.out,fastp.out.passOn).mix().collect() \
+        | set {fastqc_collect}
+    multiqc(fastqc_collect)
+                
     alignment(index_genome.out,fastp.out.passOn) \
         | set{align_done}
     
@@ -670,6 +737,8 @@ workflow{
 
     remove_duplicates(dupl_check_complete) \
         | set {dupl_removed}
+        
+    qualimap(dupl_removed)*.collectFile()
 
     if( params.knownSites != null ) {
         ch_knownsites = Channel.value(file(params.knownSites))
