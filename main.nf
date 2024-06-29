@@ -129,7 +129,7 @@ process multiqc {
 
 process alignment{
     
-    time '2d'
+    time '16h'
     memory '48 GB'
     tag "$runAccession"
     publishDir "${params.savePath}/raw_bams", mode: 'symlink'
@@ -183,7 +183,7 @@ process check_duplicates{
 process remove_duplicates{
     
     time '4h'
-    memory '24 GB'
+    memory '32 GB'
     tag "$runAccession"
     container "docker.io/broadinstitute/gatk:4.5.0.0"
 
@@ -223,32 +223,37 @@ process qualimap{
     tuple path(dupRemBam),val(runAccession)
 
     output:
-    path '*/*_qualimap.pdf'
+    path '*_qualimap'
     
     script: 
     """
-    qualimap bamqc -bam $dupRemBam -outfile $runAccession"_qualimap.pdf"
+    qualimap bamqc -bam $dupRemBam -outdir $runAccession"_qualimap"
     """
 }
 
 process qualimap_collate{
     
-    publishDir '{params.publish_dir}/qualimap_multiqc', mode: 'copy'
-    module 'biocontainers:qualimap/2.2.1'
-
+    publishDir "${params.savePath}/qualimap/", mode: 'copy'
+    time '6h'
+    memory '24 GB'
+    container "docker.io/pegi3s/qualimap:2.2.1"
+    
     input:
-    file
+    file qualResList
+    
+    output:
+    file 'multibamqc'
 
     script:
-    outdir = params.publish_dir + "/qualimap_multiqc/"
-
     """
-    ml biocontainers qualimap/2.2.1
+    mkdir -p ${params.savePath}/qualimap/collated
+    #unset DISPLAY
     
-    mkdir -p $outdir
-    unset DISPLAY
+    echo $qualResList | sed -e 's/ /\\n/g' > dirs
+    cat dirs | sed 's/_qualimap//g' | sed -e 's/ /\\n/g' > IDs
+    paste IDs dirs > intable.tsv
 
-    qualimap multi-bamqc -d $qualframe -outdir $outdir
+    qualimap multi-bamqc -d intable.tsv -outdir multibamqc
     """
 }
 
@@ -738,7 +743,10 @@ workflow{
     remove_duplicates(dupl_check_complete) \
         | set {dupl_removed}
         
-    qualimap(dupl_removed)*.collectFile()
+    qualimap(dupl_removed).collect() \
+        | set {qualimap_collect}
+    qualimap_collect.collect()
+    qualimap_collate(qualimap_collect)
 
     if( params.knownSites != null ) {
         ch_knownsites = Channel.value(file(params.knownSites))
