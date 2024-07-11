@@ -129,8 +129,8 @@ process multiqc {
 
 process alignment{
     
-    time '16h'
-    memory '48 GB'
+    time '12h'
+    memory '32 GB'
     tag "$runAccession"
     publishDir "${params.savePath}/raw_bams", mode: 'symlink'
     container "docker.io/broadinstitute/gatk:4.5.0.0"
@@ -213,7 +213,7 @@ process remove_duplicates{
 process qualimap{
 
     publishDir "${params.savePath}/qualimap", mode: 'copy'
-    time '6h'
+    time '4h'
     memory '24 GB'
     tag "$runAccession"
     container "docker.io/pegi3s/qualimap:2.2.1"
