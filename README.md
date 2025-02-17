@@ -1,7 +1,6 @@
 <h1>Readme</h1>
 
 Created by B. Goller, Purdue College of Agriculture Data Services, October 2022
-Updated by B. A. Taylor, Purdue Entomology, May 2024
 
 <h2>Overview</h2>
 This Nextflow pipeline is designed to automate downloading and processing of Honey bee (Apis mellifera) sequence data. Taking an input list of desired sequences (NCBI/EBI), the pipeline then aligns those sequence to a honey bee reference genome, does some quality control, and produces a final variant call format file for each sequence.
