@@ -2,8 +2,10 @@
 
 Created by B. Goller, Purdue College of Agriculture Data Services, October 2022
 
+Updated by B. A. Taylor, Harpur Lab, May 2024 (compare main.nf to main_nodownload.nf)
+
 <h2>Overview</h2>
-This Nextflow pipeline is designed to automate downloading and processing of Honey bee (Apis mellifera) sequence data. Taking an input list of desired sequences (NCBI/EBI), the pipeline then aligns those sequence to a honey bee reference genome, does some quality control, and produces a final variant call format file for each sequence.
+This Nextflow pipeline is designed to automate downloading and processing of Honey bee (Apis mellifera) sequence data. Taking an input list of desired sequences (local or NCBI/EBI), the pipeline then aligns those sequence to a reference genome (honey bee by default), does some quality control, and produces a final variant call format file for each sequence.
 
 The Nextflow pipeline contains the following processes (in sequential order):
 1)	fastq_setup: check whether one or two fastq files need to be downloaded
@@ -13,41 +15,49 @@ The Nextflow pipeline contains the following processes (in sequential order):
 5)	check_duplicates: gatk/Picard AddOrReplaceReadGroups
 6)	remove_duplicates: gatk MarkDuplicates with –REMOVE_SEQUENCING_DUPLICATES set to ‘true’
 7)	base_recal1/2/3: three iterations of gatk ApplyBQSR, gatk BaseRecalibrator, and gatk AnalyzeCovariates. Read more about this process here: https://gatk.broadinstitute.org/hc/en-us/articles/360035890531-Base-Quality-Score-Recalibration-BQSR. The basic idea is that we identify sources of systematic bias in the rate at which mismatched calls (against the reference) are found, (for example, do we tend to find an overabundance of variants at the ends of reads), and then we adjust the base quality scores accordingly. If we know where we *should* be finding variants, we can supply a vcf of known sites to be masked from this process. In this pipeline, by default we use a VCF of known AMEL SNPs. But what if we don't have a set of known variants? In that case, we might wish to perform some kind of bootstrapping, e.g. first genotyping, then running the original data through the BSQR process using the most high-confidence SNPs from the first pass as known sites. This can be done multiple times until the data seem to converge. That capability isn't currently implemented, but could be!
+2024 Update by Ben Taylor: bootstrapping is now implemented!
 8)	haplotype_caller: gatk HaplotypeCaller to generate VCF, using default parameters. 
 9)	alignment_cleanup: delete fastq and other intermediate files (bam_files, updated_bam_files, and recal_bam_files)
 
-<h2>Inputs</h2>
---database: the information for the input sequences for the pipeline (format is a .CSV database). Subsetting the included ‘genomics_dataset.csv’ is recommended.
---saveTemp: indicate the directory where the downloaded fastq files and intermediate products should be saved (the fastq files and intermediate products are DELETED at the end of the workflow)
---savePath: indicate the directory where the pipeline products should be saved
-
-<h2>Other notes</h2>
-1.	Reference genome: the pipeline is set up to work on Apis mellifera only – the reference genome has not been included as an argument and is therefore specified in the code directly. A future version could make the reference genome flexible.
-2.	Similarly, a check for Apis mellifera sequences only is also included in the workflow. All database entries that do not have the ‘7460’ tax_id code are filtered out and ignored.
-3.  At present, the pipeline ends at the haplotype calling step, but this is *not* an appropriate final step before downstream analysis. We either need to take the output VCF and filter, or (preferably, I think) use output gvcfs to perform joint genotyping with GenotypeGVCFs (and then perform any filtering we want on the output from that)
+<h2>Required parameters</h2>
+--fqPattern: An absolute filepath indicating the patterns of one or more pairs of fastq files. For example, if my raw data are called something like '/depot/popgenomes/USDAHornets/AGH432_2.fq.gz', then this parameter should be '/depot/popgenomes/USDAHornets/diploid_symlinks/*_{1,2}.fq.gz'
+--savePath: An absolute filepath giving the directory in which the pipeline products should be saved
+--refGenome: An absolute filepath giving the location of a reference sequence (usually an .fna file)
 
 <h2>How to run on Purdue Bell</h2>
-Considerations:
+
 1)	There is limited space on your home directory on Bell (25GB) which will very quickly be filled by sequencing files and Nextflow logging – use your scratch directory (scratch/bell/userName or $RCAC_SCRATCH) where possible for temporary files
 2)	Similarly, cd into your scratch directory (cd $RCAC_SCRATCH) before starting a Nextflow run so that pipeline logging can be stored (it will almost certainly be >25GB)
-3)	Make sure your “database” file with the fastq information is correct (contents and you are correctly pointing to the file) otherwise you will spend lots of time processing files you didn’t really want
-4)	Locations of Nextflow, and the pipeline components:
+3)	Locations of Nextflow, and the pipeline components:
 To get to the Nextflow program: /depot/bharpur/apps/nextflow
 The bee pipeline is located at: /depot/bharpur/apps/nf_align_and_call_haplotype/main.nf
 The config file for the pipeline: /depot/bharpur/apps/nf_align_and_call_haplotype/nextflow.config
 
-Example Nextflow pipeline call:
-/depot/bharpur/apps/nextflow -C /depot/bharpur/apps/nf_align_and_call_haplotype/nextflow.config run /depot/bharpur/apps/nf_align_and_call_haplotype/main.nf --database /depot/bharpur/data/popgenomes/nextflow/PRJNA729035/genomics_dataset_PRJNA729035.csv --saveTemp $RCAC_SCRATCH --savePath /depot/bharpur/data/popgenomes/nextflow/PRJNA729035/ -bg -resume
+<h3>Example Nextflow pipeline call</h3>
+
+/depot/bharpur/apps/nextflow  \
+-c /depot/bharpur/apps/nf_bennyben/nextflow.config \
+run /depot/bharpur/apps/nf_bennyben/main.nf \
+--fqPattern '/depot/bharpur/data/popgenomes/USDAHornets/diploid_symlinks/*_{1,2}.fq.gz' \
+--savePath /depot/bharpur/data/popgenomes/USDAHornets/benny_full/output \
+--refGenome /home/tayl1080/bharpur/data/ref_genomes/VMAN/GCF_014083535.2_V.mandarinia_Nanaimo_p1.0_genomic.fna \
+-bg -with-tower -resume
+
 Breakdown:
+
 /depot/bharpur/apps/nextflow runs the Nextflow app
--C /depot/bharpur/apps/nf_align_and_call_haplotype/nextflow.config tells Nextflow where the nextflow.config file is (sets some basic rules for how Nextflow operates)
+
+-c /depot/bharpur/apps/nf_align_and_call_haplotype/nextflow.config tells Nextflow where the nextflow.config file is (sets some basic rules for how Nextflow operates)
+
 run is the Nextflow command to run the pipeline
-/depot/bharpur/apps/nf_align_and_call_haplotype/main.nf is the Honey bee pipeline you want to run
---database /depot/bharpur/data/popgenomes/nextflow/PRJNA729035/genomics_dataset_PRJNA729035.csv points the pipeline to the CSV format database with study information (tells the pipeline what sequences to download, etc)
---saveTemp $RCAC_SCRATCH tells Nextflow to save the “temporary” files on your scratch space on Bell
---savePath /depot/bharpur/data/popgenomes/nextflow/PRJNA729035/ tells Nextflow to save the final output of the pipeline to a folder on the bharpur depot drive (in this case)
+
+--fqPattern, --savePath, --refGenome: these all specify the data or output locations to use for this pipeline instance
+
 [OPTIONAL] -bg runs Nextflow in the background so you can close your terminal without stopping the Nextflow pipeline (recommend this because the pipeline will take a long time to complete)
+
 [OPTIONAL] -resume if you need to restart the pipeline (pick up where it stopped for instance) you can use the resume command. This will be ignored if you are starting a new run of the pipeline
+
+[OPTIONAL] -with-tower lets you monitor the pipeline progress from a useful web-based UI. You need to have set this up beforehand: https://training.nextflow.io/latest/basic_training/seqera_platform/
 
 <h2>Troubleshooting</h2>
 The directory where you launch the Nextflow run matters…your logging files and /work/ directory that keeps track of your progress will both be saved there. Nextflow will run as a process (won’t show up in the jobs queue) and the pipeline will automatically submit individual jobs for each sequence (tagged with the accession number) for each part of the pipeline. 

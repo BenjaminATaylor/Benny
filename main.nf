@@ -1,5 +1,7 @@
 #!/usr/bin/env nextflow
 
+// Default parameters are always overridden if a different argument is provided at the command line or elsewhere
+
 //where to save the output files generated in the analyses
 params.savePath = "/depot/bharpur/data/popgenomes/nextflow/"
 
@@ -9,6 +11,7 @@ params.refGenome = "/depot/bharpur/data/ref_genomes/AMEL/Amel_HAv3.1_genomic.fna
 //set knownsites empty by default
 params.knownSites = null
 
+//importing these modules (instead of defining them in main.nf) allows them to be duplicated under different names
 include { haplotype_caller; haplotype_caller as haplotype_caller_2 } from './modules.nf'
 include { combine_gvcfs; combine_gvcfs as combine_gvcfs_2 } from './modules.nf'
 include { genotype_gvcfs; genotype_gvcfs as genotype_gvcfs_2 } from './modules.nf'
@@ -63,7 +66,7 @@ process fastp {
     tag "$runAccession"
     publishDir "${params.savePath}/fastp", mode: 'copy', pattern: '*_log.*'
     container "docker.io/biocontainers/fastp:v0.20.1_cv1"
-    clusterOptions '--ntasks 16 -A bharpur'
+    clusterOptions '--ntasks 16'
 
     input:
     tuple val(runAccession), file(fastq1), file(fastq2)
@@ -88,7 +91,7 @@ process fastqc {
     tag "$runAccession"
     publishDir "${params.savePath}/fastqc/$runAccession", mode: 'copy'
     container "docker.io/biocontainers/fastqc:v0.11.9_cv8"
-    clusterOptions '--ntasks 8 -A bharpur'
+    clusterOptions '--ntasks 8'
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
@@ -134,7 +137,7 @@ process alignment{
     tag "$runAccession"
     publishDir "${params.savePath}/raw_bams", mode: 'symlink'
     container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--ntasks 32 -A bharpur'
+    clusterOptions '--ntasks 32'
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
