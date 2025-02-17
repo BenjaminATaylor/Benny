@@ -1,7 +1,6 @@
 <h1>Readme</h1>
 
 Created by B. Goller, Purdue College of Agriculture Data Services, October 2022
-
 Updated by B. A. Taylor, Purdue Entomology, May 2024
 
 <h2>Overview</h2>
