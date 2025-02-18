@@ -66,7 +66,6 @@ process fastp {
     tag "$runAccession"
     publishDir "${params.savePath}/fastp", mode: 'copy', pattern: '*_log.*'
     container "docker.io/biocontainers/fastp:v0.20.1_cv1"
-    clusterOptions '--ntasks 16'
 
     input:
     tuple val(runAccession), file(fastq1), file(fastq2)
@@ -91,7 +90,6 @@ process fastqc {
     tag "$runAccession"
     publishDir "${params.savePath}/fastqc/$runAccession", mode: 'copy'
     container "docker.io/biocontainers/fastqc:v0.11.9_cv8"
-    clusterOptions '--ntasks 8'
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
@@ -136,8 +134,7 @@ process alignment{
     memory '32 GB'
     tag "$runAccession"
     publishDir "${params.savePath}/raw_bams", mode: 'symlink'
-    container "docker.io/broadinstitute/gatk:4.5.0.0"
-    clusterOptions '--ntasks 32'
+    container "oras://community.wave.seqera.io/library/nextgenmap_samtools:5b70e5317d98afec"
 
     input:
     tuple path(refgenome), path(refindex), path(refdict)
@@ -149,9 +146,10 @@ process alignment{
     script:
     """
     mkdir -p ${params.savePath}/raw_bams
-    /depot/bharpur/apps/NextGenMap-0.5.2/bin/ngm-0.5.2/ngm -r $refgenome -1 $fq1 -2 $fq2 -t 32 | samtools sort > $runAccession'_raw.bam'
+    ngm -r $refgenome -1 $fq1 -2 $fq2 -t 32 | samtools sort > $runAccession'_raw.bam'
     """
 }
+
 /*
 ========================================================================================
     DUPLICATE CONTROL
@@ -220,7 +218,6 @@ process qualimap{
     memory '24 GB'
     tag "$runAccession"
     container "docker.io/pegi3s/qualimap:2.2.1"
-    clusterOptions '--ntasks 16 -A bharpur'
 
     input:
     tuple path(dupRemBam),val(runAccession)
