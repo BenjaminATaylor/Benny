@@ -11,10 +11,10 @@ params.refGenome = "/depot/bharpur/data/ref_genomes/AMEL/Amel_HAv3.1_genomic.fna
 //set knownsites empty by default
 params.knownSites = null
 
-//importing these modules (instead of defining them in main.nf) allows them to be duplicated under different names
-include { haplotype_caller; haplotype_caller as haplotype_caller_2 } from './modules.nf'
-include { combine_gvcfs; combine_gvcfs as combine_gvcfs_2 } from './modules.nf'
-include { genotype_gvcfs; genotype_gvcfs as genotype_gvcfs_2 } from './modules.nf'
+//importing these modules (instead of defining them in main.nf) allowed them to be duplicated under different names in a legacy version - this is now redundant but displays different ways of calling modules nicely, so I've kept this for instructive purposes)
+include { haplotype_caller} from './modules.nf'
+include { combine_gvcfs} from './modules.nf'
+include { genotype_gvcfs} from './modules.nf'
 
 ch_refgenome = Channel.value(file(params.refGenome))
 
@@ -768,42 +768,9 @@ workflow{
     genotype_gvcfs(index_genome.out, combine_gvcfs.out) \
     | set {combined_vcf}
     
-    // If no known-sites file is provided, we apply a harsh variant filter and use the remaining high-confidence sites to perform base quality recalibration
-    if( params.knownSites == null ) {
-        
-        select_snps(index_genome.out, genotype_gvcfs.out)
-        filter_snps(index_genome.out, select_snps.out)
-
-        select_indels(index_genome.out, genotype_gvcfs.out)
-        filter_indels(index_genome.out, select_indels.out)
-            
-        // Note that we use the first() operator here to ensure that the snp/indel filter outputs are treated as values instead of queues
-        base_recal_boot_init(
-            index_genome.out, 
-            dupl_removed,
-            filter_snps.out.first(),
-            filter_indels.out.first())
-            
-        base_recal_boot_1(index_genome.out, base_recal_boot_init.out)
-        base_recal_boot_2(index_genome.out, base_recal_boot_1.out)
-        base_recal_boot_3(index_genome.out, base_recal_boot_2.out)
-        base_recal_boot_3.out.view()
-        
-        haplotype_caller_2(index_genome.out, base_recal_boot_3.out) 
-        haplotype_caller_2.out.gvcf.collectFile(name: 'vcfs.list', newLine: true) \
-        | set {vcfslist_2}
-        
-        combine_gvcfs_2(index_genome.out, vcfslist_2)
-        genotype_gvcfs_2(index_genome.out, combine_gvcfs_2.out) \
-        | set {combined_vcf}
-        
-        genotype_gvcfs_2.out.view()
-    }
-    
     // Downstream quality filtering of SNPs
     downstream_filter(index_genome.out, combined_vcf)
     // Recode (useful for some analyses)
     recode_vcfs(downstream_filter.out)
-
-
+    
 }
