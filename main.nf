@@ -227,7 +227,7 @@ process qualimap{
     
     script: 
     """
-    qualimap bamqc -bam $dupRemBam -outdir $runAccession"_qualimap"
+    qualimap bamqc -bam $dupRemBam -outdir $runAccession"_qualimap" --java-mem-size=12000M
     """
 }
 
