@@ -124,7 +124,7 @@ process multiqc {
     script:
     """
     mkdir -p combined_multiqc
-    multiqc $fastqcs --outdir combined_multiqc
+    multiqc -d -dd 1 -s $fastqcs --outdir combined_multiqc
     """   
 }
 
@@ -676,7 +676,13 @@ process downstream_filter{
         -filter "MQ < 40.0" --filter-name "MQ40" \
         -filter "MQRankSum < -12.5" --filter-name "MQRankSum-12.5" \
         -filter "ReadPosRankSum < -8.0" --filter-name "ReadPosRankSum-8" \
+        -O snps_marked.vcf.gz
+        
+    gatk SelectVariants \
+        -V snps_marked.vcf.gz \
+        --exclude-filtered \
         -O snps_filtered.vcf.gz
+    
 
     #filter Indels using default params
     gatk VariantFiltration \
@@ -685,7 +691,13 @@ process downstream_filter{
         -filter "QUAL < 30.0" --filter-name "QUAL30" \
         -filter "FS > 200.0" --filter-name "FS200" \
         -filter "ReadPosRankSum < -20.0" --filter-name "ReadPosRankSum-20" \
-        -O indels_filtered.vcf.gz
+        -O indels_marked.vcf.gz
+        
+       gatk SelectVariants \
+            -V indels_marked.vcf.gz \
+            --exclude-filtered \
+            -O indels_filtered.vcf.gz
+        
     """
 }
     
