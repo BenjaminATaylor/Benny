@@ -78,7 +78,7 @@ process fastp {
     """
     mkdir -p ${params.savePath}/fastp
     fastp -i $fastq1 -I $fastq2 -o trim_1.fq -O trim_2.fq \
-        --thread 16 --detect_adapter_for_pe -j ${runAccession}_fastp_log.json -h ${runAccession}_fastp_log.html
+        --thread 16 --detect_adapter_for_pe --trim_poly_g --poly_g_min_len 20  -j ${runAccession}_fastp_log.json -h ${runAccession}_fastp_log.html
 
     """
 }
@@ -187,6 +187,7 @@ process remove_duplicates{
     memory '32 GB'
     tag "$runAccession"
     container "docker.io/broadinstitute/gatk:4.5.0.0"
+    publishDir "${params.savePath}/final_bam_files/${runAccession}", mode: 'symlink', pattern: '*.{bam,bai}'
 
     input:
     tuple val(runAccession), path(inbam)
