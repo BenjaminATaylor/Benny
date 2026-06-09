@@ -11,10 +11,14 @@ params.refGenome = "/depot/bharpur/data/ref_genomes/AMEL/Amel_HAv3.1_genomic.fna
 //set knownsites empty by default
 params.knownSites = null
 
+//set intervals empty by default (derived from reference dict if not provided)
+params.intervals = null
+
 //importing these modules (instead of defining them in main.nf) allowed them to be duplicated under different names in a legacy version - this is now redundant but displays different ways of calling modules nicely, so I've kept this for instructive purposes)
 include { haplotype_caller} from './modules.nf'
-include { combine_gvcfs} from './modules.nf'
-include { genotype_gvcfs} from './modules.nf'
+include { genomicsdb_import } from './modules.nf'
+include { genotype_gvcfs } from './modules.nf'
+include { gather_vcfs } from './modules.nf'
 
 ch_refgenome = Channel.value(file(params.refGenome))
 
@@ -703,23 +707,46 @@ process downstream_filter{
 }
     
     process recode_vcfs{
-        
+
         time '8h'
         container "pegi3s/vcftools:0.1.16"
-        publishDir "${params.savePath}/filtered_snps", mode: 'copy'
-        
+
         input:
         path(snps)
         path(indels)
-        
+
         output:
-        path('snps_filtered_recode.vcf.gz')
-        path('indels_filtered_recode.vcf.gz')
-        
+        path('snps_recoded.vcf.gz'), emit: snps
+        path('indels_recoded.vcf.gz'), emit: indels
+
         script:
         """
-        vcftools --gzvcf $snps --recode --remove-filtered-all --stdout | gzip -c > 'snps_filtered_recode.vcf.gz'
-        vcftools --gzvcf $indels --recode  --remove-filtered-all --stdout | gzip -c > 'indels_filtered_recode.vcf.gz'
+        vcftools --gzvcf $snps --recode --recode-INFO-all --remove-filtered-all --minDP 3 --stdout | gzip -c > 'snps_recoded.vcf.gz'
+        vcftools --gzvcf $indels --recode --recode-INFO-all --remove-filtered-all --minDP 3 --stdout | gzip -c > 'indels_recoded.vcf.gz'
+        """
+}
+
+    process fill_tags{
+
+        time '4h'
+        memory '8 GB'
+        container "quay.io/biocontainers/bcftools:1.19--h8b25389_0"
+        publishDir "${params.savePath}/filtered_snps", mode: 'copy'
+
+        input:
+        path(snps)
+        path(indels)
+
+        output:
+        tuple path('snps_filtered_recode.vcf.gz'), path('snps_filtered_recode.vcf.gz.tbi')
+        tuple path('indels_filtered_recode.vcf.gz'), path('indels_filtered_recode.vcf.gz.tbi')
+
+        script:
+        """
+        bcftools +fill-tags $snps   -Oz -o snps_filtered_recode.vcf.gz   -- -t AC,AN,AF,NS,F_MISSING
+        bcftools +fill-tags $indels -Oz -o indels_filtered_recode.vcf.gz -- -t AC,AN,AF,NS,F_MISSING
+        bcftools index -t snps_filtered_recode.vcf.gz
+        bcftools index -t indels_filtered_recode.vcf.gz
         """
 }
     
@@ -776,14 +803,40 @@ workflow{
     
     haplotype_caller.out.gvcf.collectFile(name: 'vcfs.list', newLine: true) \
         | set {vcfslist}
-        
-    combine_gvcfs(index_genome.out, vcfslist)
-    genotype_gvcfs(index_genome.out, combine_gvcfs.out) \
-    | set {combined_vcf}
+
+    if (params.intervals) {
+        ch_intervals = Channel.fromPath(params.intervals).splitText().map { it.trim() }
+    } else {
+        ch_intervals = index_genome.out
+            .map { ref, fai, dict -> dict }
+            .splitCsv(sep: '\t')
+            .filter { row -> row[0] == '@SQ' }
+            .map { row -> row[1].replace('SN:', '') }
+    }
+
+    vcfslist.combine(ch_intervals) \
+        | set { ch_import_input }
+
+    genomicsdb_import(index_genome.out, ch_import_input)
+
+    genotype_gvcfs(index_genome.out, genomicsdb_import.out)
+
+    genotype_gvcfs.out
+        .toSortedList { a, b -> a[0] <=> b[0] }
+        .multiMap { sorted ->
+            vcfs: sorted.collect { it[1] }
+            tbis: sorted.collect { it[2] }
+        }
+        .set { ch_gather }
+
+    gather_vcfs(index_genome.out, ch_gather.vcfs, ch_gather.tbis) \
+        | set { combined_vcf }
     
     // Downstream quality filtering of SNPs
     downstream_filter(index_genome.out, combined_vcf)
     // Recode (useful for some analyses)
     recode_vcfs(downstream_filter.out)
+    // Refresh genotype-derived INFO tags after --minDP masking
+    fill_tags(recode_vcfs.out.snps, recode_vcfs.out.indels)
     
 }
