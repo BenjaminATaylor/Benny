@@ -1,6 +1,6 @@
 # nf_bennyben
 
-A Nextflow pipeline for trimming, aligning, deduplicating, and joint variant-calling short-read sequencing data against a reference genome. Originally written for *Apis mellifera* by Benny Goller (Purdue College of Agriculture Data Services, October 2022); substantially rewritten and extended for hymenopteran genomics by Benjamin A. Taylor (Harpur Lab, 2024–2026).
+A Nextflow pipeline for trimming, aligning, deduplicating, and joint variant-calling short-read sequencing data against a reference genome.
 
 ## What it does
 
